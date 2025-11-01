@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import api from '@/lib/api'
+import toast, { Toaster } from 'react-hot-toast'
+import api, { saveAuth } from '@/lib/api'
 
 export default function CustomerSignup() {
   const [form, setForm] = useState({
@@ -11,7 +12,6 @@ export default function CustomerSignup() {
     msisdn: '',
     password: '',
   })
-  const [msg, setMsg] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
 
@@ -21,26 +21,55 @@ export default function CustomerSignup() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setMsg('')
     setSubmitting(true)
+    const toastId = toast.loading('Creating your account...')
 
     try {
-      const response = await api.createCustomer({
-        fullName: form.fullName,
-        email: form.email,
-        msisdn: form.msisdn,
+      const data = await api.createCustomer({
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        msisdn: form.msisdn.trim(),
         password: form.password,
       })
 
-      if (response.id || response.email) {
-        alert('🎉 Account created successfully! Please log in.')
-        router.push('/customer_login')
+      console.log('Signup response:', data)
+
+      if (data?.status === 'success' || data?.message?.includes('created')) {
+        toast.success('🎉 Account created successfully! Redirecting to login...', {
+          id: toastId,
+          duration: 2500,
+        })
+
+        // Optional: Auto-login after signup
+        const loginData = await api.customerLogin({
+          email: form.email.trim(),
+          password: form.password,
+        })
+
+        const token = loginData?.data?.token || loginData?.token
+        const customer = loginData?.data?.customer || loginData?.customer
+
+        if (token && customer?.email) {
+          // Save consistent identifier and role
+          saveAuth(token, { identifier: customer.email, role: 'CUSTOMER' })
+          localStorage.setItem('glovendor_identifier', customer.email)
+          localStorage.setItem('glovendor_role', 'CUSTOMER')
+          localStorage.setItem(
+            'user',
+            JSON.stringify({ id: customer.id, email: customer.email, fullName: customer.fullName, role: 'CUSTOMER' })
+          )
+        }
+
+        setTimeout(() => router.push('/customer_dashboard'), 2500)
       } else {
-        setMsg('❌ Failed to register. Please try again.')
+        toast.error(data?.message || '❌ Registration failed. Please try again.', { id: toastId })
       }
     } catch (err) {
-      console.error(err)
-      setMsg('❌ Error: ' + err.message)
+      console.error('Signup error:', err)
+      const message =
+        err.response?.data?.message ||
+        (typeof err.response?.data === 'string' ? err.response.data : 'An unexpected error occurred.')
+      toast.error('❌ ' + message, { id: toastId })
     } finally {
       setSubmitting(false)
     }
@@ -48,6 +77,7 @@ export default function CustomerSignup() {
 
   return (
     <div className="max-w-md mx-auto mt-20 bg-white p-6 rounded shadow">
+      <Toaster position="top-center" reverseOrder={false} />
       <h2 className="text-xl font-semibold mb-4 text-center">📝 Customer Signup</h2>
 
       <form onSubmit={handleSubmit} className="space-y-3">
@@ -104,8 +134,6 @@ export default function CustomerSignup() {
           Login
         </a>
       </p>
-
-      {msg && <p className="mt-3 text-sm text-red-600 text-center">{msg}</p>}
     </div>
   )
 }

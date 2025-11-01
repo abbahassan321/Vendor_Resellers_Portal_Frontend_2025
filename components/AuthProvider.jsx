@@ -8,15 +8,23 @@ export function AuthProvider({ children }) {
   const router = useRouter();
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false); // ✅ prevent flashing before load
 
   useEffect(() => {
-    // Load token and user info from localStorage
     const storedToken = localStorage.getItem('glovendor_token');
     const storedUser = localStorage.getItem('glovendor_user');
+
     if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setToken(storedToken);
+        setUser(parsedUser);
+      } catch {
+        localStorage.removeItem('glovendor_user');
+      }
     }
+
+    setAuthReady(true); // ✅ mark as ready after check
   }, []);
 
   const login = (newToken, userObj) => {
@@ -31,18 +39,23 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('glovendor_user');
     setToken(null);
     setUser(null);
-    router.push('/login');
+    router.push('/');
   };
 
-  const value = {
-    token,
-    user,
-    login,
-    logout,
-    isAuthenticated: !!token
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        login,
+        logout,
+        isAuthenticated: !!token,
+        authReady,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => useContext(AuthContext);

@@ -2,15 +2,15 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
+import toast, { Toaster } from 'react-hot-toast';
 import api from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 export default function ManageSubvendor() {
-  // SWR fetch hook for subvendors
   const { data: subs, error, isLoading, mutate } = useSWR('subs', api.listSubvendors);
 
-  // Modal visibility and form state
   const [showModal, setShowModal] = useState(false);
+  const [editingSub, setEditingSub] = useState(null); // null for create, object for edit
   const [form, setForm] = useState({
     businessName: '',
     contactPerson: '',
@@ -20,93 +20,126 @@ export default function ManageSubvendor() {
     password: '',
   });
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
 
-  // Handle form inputs
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Submit form handler
+  const openCreateModal = () => {
+    setEditingSub(null);
+    setForm({
+      businessName: '',
+      contactPerson: '',
+      email: '',
+      phone: '',
+      address: '',
+      password: '',
+    });
+    setShowModal(true);
+  };
+
+  const openEditModal = (sub) => {
+    setEditingSub(sub);
+    setForm({
+      businessName: sub.businessName || '',
+      contactPerson: sub.contactPerson || '',
+      email: sub.email || '',
+      phone: sub.phone || '',
+      address: sub.address || '',
+      password: '',
+    });
+    setShowModal(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    setMessage('');
+
+    const toastId = toast.loading(editingSub ? 'Updating subvendor...' : 'Creating subvendor...');
 
     try {
-      await api.createSubvendor({
-        businessName: form.businessName,
-        contactPerson: form.contactPerson,
-        email: form.email,
-        address: form.address,
-        phone: form.phone,
-        passwordHash: form.password, // backend will hash internally
-      });
+      if (editingSub) {
+        // Update
+        await api.updateSubvendor(editingSub.id, {
+          businessName: form.businessName,
+          contactPerson: form.contactPerson,
+          email: form.email,
+          address: form.address,
+          phone: form.phone,
+          ...(form.password ? { passwordHash: form.password } : {}), // update only if provided
+        });
 
-      // Show success message
-      setMessage('✅ Subvendor created successfully!');
+        toast.success('✅ Subvendor updated successfully!', { id: toastId });
+      } else {
+        // Create
+        await api.createSubvendor({
+          businessName: form.businessName,
+          contactPerson: form.contactPerson,
+          email: form.email,
+          address: form.address,
+          phone: form.phone,
+          passwordHash: form.password,
+        });
 
-      // Reset form
-      setForm({
-        businessName: '',
-        contactPerson: '',
-        email: '',
-        phone: '',
-        address: '',
-        password: '',
-      });
+        toast.success('✅ Subvendor created successfully!', { id: toastId });
+      }
 
-      // Close modal after success
-      setTimeout(() => {
-        setShowModal(false);
-        setMessage('');
-      }, 1500);
-
-      // Refresh subvendor list
+      setShowModal(false);
       mutate();
     } catch (err) {
-      console.error('Failed to create subvendor:', err);
-      setMessage('❌ Failed to create subvendor. Please try again.');
+      console.error('Subvendor save error:', err);
+
+      const message =
+        err.response?.data?.message ||
+        (typeof err.response?.data === 'string'
+          ? err.response.data
+          : '❌ Failed to save subvendor. Please try again.');
+
+      toast.error(message, { id: toastId });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    const confirmDelete = window.confirm('Are you sure you want to delete this subvendor?');
+    if (!confirmDelete) return;
+
+    const toastId = toast.loading('Deleting subvendor...');
+    try {
+      await api.deleteSubvendor(id);
+      toast.success('🗑️ Subvendor deleted successfully!', { id: toastId });
+      mutate();
+    } catch (err) {
+      console.error('Failed to delete subvendor:', err);
+      const msg =
+        err.response?.data?.message ||
+        (typeof err.response?.data === 'string'
+          ? err.response.data
+          : '❌ Failed to delete subvendor.');
+      toast.error(msg, { id: toastId });
     }
   };
 
   return (
     <ProtectedRoute>
       <div className="p-6">
+        <Toaster position="top-center" reverseOrder={false} />
+
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">Subvendors</h2>
           <button
-            onClick={() => {
-              setShowModal(true);
-              setMessage('');
-            }}
+            onClick={openCreateModal}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
           >
             + Add Subvendor
           </button>
         </div>
 
-        {/* Message */}
-        {message && (
-          <div
-            className={`mb-4 p-3 rounded text-center ${
-              message.startsWith('✅')
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-800'
-            }`}
-          >
-            {message}
-          </div>
-        )}
-
-        {/* Loading */}
+        {/* Loading & Error States */}
         {isLoading && <p className="text-gray-500 text-sm">Loading subvendors...</p>}
-
-        {/* Error */}
         {error && (
           <p className="text-red-500 text-sm">
             Failed to load subvendors. Please try again later.
@@ -114,7 +147,7 @@ export default function ManageSubvendor() {
         )}
 
         {/* Subvendor Table */}
-        <div className="bg-white rounded shadow p-4">
+        <div className="bg-white rounded shadow p-4 overflow-x-auto">
           {subs && Array.isArray(subs) && subs.length ? (
             <table className="min-w-full text-sm text-left border-collapse">
               <thead className="border-b font-medium bg-gray-50">
@@ -125,6 +158,7 @@ export default function ManageSubvendor() {
                   <th className="py-2 px-3">Phone</th>
                   <th className="py-2 px-3">Address</th>
                   <th className="py-2 px-3">Created At</th>
+                  <th className="py-2 px-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -133,14 +167,26 @@ export default function ManageSubvendor() {
                     <td className="py-2 px-3 font-medium text-gray-900">
                       {s.businessName || '—'}
                     </td>
-                    <td className="py-2 px-3">
-                      {s.contactPerson?.trim() ? s.contactPerson : '—'}
-                    </td>
+                    <td className="py-2 px-3">{s.contactPerson || '—'}</td>
                     <td className="py-2 px-3">{s.email || '—'}</td>
                     <td className="py-2 px-3">{s.phone || '—'}</td>
                     <td className="py-2 px-3">{s.address || '—'}</td>
                     <td className="py-2 px-3 text-gray-500">
                       {s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}
+                    </td>
+                    <td className="py-2 px-3 flex gap-2 justify-center">
+                      <button
+                        onClick={() => openEditModal(s)}
+                        className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -162,7 +208,9 @@ export default function ManageSubvendor() {
                 ✕
               </button>
 
-              <h3 className="text-lg font-semibold mb-4">Add New Subvendor</h3>
+              <h3 className="text-lg font-semibold mb-4">
+                {editingSub ? 'Edit Subvendor' : 'Add New Subvendor'}
+              </h3>
 
               <form onSubmit={handleSubmit} className="space-y-3">
                 <input
@@ -209,9 +257,11 @@ export default function ManageSubvendor() {
                   type="password"
                   value={form.password}
                   onChange={handleChange}
-                  placeholder="Password"
+                  placeholder={
+                    editingSub ? 'New Password (optional)' : 'Password (required)'
+                  }
                   className="w-full border p-2 rounded"
-                  required
+                  required={!editingSub}
                 />
 
                 <button
@@ -221,13 +271,15 @@ export default function ManageSubvendor() {
                     submitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'
                   }`}
                 >
-                  {submitting ? 'Saving...' : 'Save Subvendor'}
+                  {submitting
+                    ? editingSub
+                      ? 'Updating...'
+                      : 'Saving...'
+                    : editingSub
+                    ? 'Update Subvendor'
+                    : 'Save Subvendor'}
                 </button>
               </form>
-
-              {message && (
-                <p className="mt-3 text-center text-sm text-gray-700">{message}</p>
-              )}
             </div>
           </div>
         )}

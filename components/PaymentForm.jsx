@@ -1,173 +1,168 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import api from '@/lib/api'
-import ProtectedRoute from '@/components/ProtectedRoute'
+import api, { getToken } from '@/lib/api'
+import toast, { Toaster } from 'react-hot-toast'
 
-export default function PaymentForm() {
+export default function PaymentForm({ onWalletUpdate }) {
   const [email, setEmail] = useState('')
+  const [role, setRole] = useState('')
   const [amount, setAmount] = useState('')
-  const [purpose, setPurpose] = useState('Wallet Funding')
-  const [message, setMessage] = useState(null)
+  const [balance, setBalance] = useState(0)
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
 
-  // ✅ Load logged-in user from localStorage
+  /* ============================================================
+   * Load Logged-In User
+   * ============================================================ */
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}')
-    if (user?.email) setEmail(user.email)
+    const userStr = localStorage.getItem('user')
+    const storedRole = localStorage.getItem('glovendor_role')
+
+    if (!userStr || !storedRole) {
+      toast.error('⚠️ Please log in to continue.')
+      setTimeout(() => (window.location.href = '/login'), 1500)
+      return
+    }
+
+    const userObj = JSON.parse(userStr)
+    if (!userObj.email) {
+      toast.error('⚠️ User session is invalid.')
+      setTimeout(() => (window.location.href = '/login'), 1500)
+      return
+    }
+
+    setEmail(userObj.email)
+    setRole(storedRole)
+    fetchWalletBalance(userObj.email, storedRole)
   }, [])
 
-  // ✅ Initiate Paystack Payment
-  async function initiatePayment(e) {
+  /* ============================================================
+   * Fetch Wallet Balance
+   * ============================================================ */
+  const fetchWalletBalance = async (email, role) => {
+    if (!email || !role) return
+    try {
+      const token = getToken()
+      const res = await api.get(`/api/wallet_transactions/balance/${email}/${role}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const newBalance = res?.data?.balance ?? 0
+      setBalance(newBalance)
+      if (onWalletUpdate) onWalletUpdate(newBalance)
+    } catch (err) {
+      console.error('❌ Wallet fetch failed:', err)
+      toast.error('❌ Failed to load wallet balance.')
+    }
+  }
+
+  /* ============================================================
+   * Handle Payment (Paystack Init)
+   * ============================================================ */
+  const initiatePayment = async (e) => {
     e.preventDefault()
+
+    if (!email || !role) {
+      toast.error('❌ Missing user session. Please log in again.')
+      return
+    }
+
+    if (!amount || parseFloat(amount) < 100) {
+      toast.error('❌ Enter an amount of at least ₦100.')
+      return
+    }
+
     setLoading(true)
-    setMessage(null)
+    const toastId = toast.loading('⏳ Initializing payment...')
 
     try {
-      if (!email || !amount) {
-        setMessage('❌ Please provide a valid email and amount.')
-        setLoading(false)
-        return
-      }
-
-      // 💾 Save current user info before redirect
-      const token = localStorage.getItem('glovendor_token')
-      const identifier = localStorage.getItem('glovendor_identifier')
-      const role = localStorage.getItem('glovendor_role') || 'customer'
-
-      localStorage.setItem(
-        'user',
-        JSON.stringify({ email, role, identifier, token })
-      )
-
-      // 🚀 API call to backend
+      const token = getToken()
       const payload = {
         email,
         amount: parseFloat(amount),
-        purpose,
+        role,
       }
 
-      const res = await api.post('/api/payments/initiate', payload)
-      console.log('✅ Paystack init response:', res.data)
+      const res = await api.post('/api/payments/initiate', payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
 
-      const authUrl =
-        res?.data?.data?.authorization_url || res?.data?.authorization_url
-      const reference =
-        res?.data?.data?.reference || res?.data?.reference
+      const authUrl = res?.data?.data?.authorization_url
+      const reference = res?.data?.data?.reference
 
       if (authUrl && reference) {
         localStorage.setItem('payment_reference', reference)
-        setMessage('✅ Redirecting to Paystack...')
+        toast.success('✅ Redirecting to Paystack...', { id: toastId })
         window.location.href = authUrl
       } else {
-        console.error('Invalid Paystack response:', res.data)
-        setMessage('❌ Failed to get Paystack authorization link')
+        toast.error('❌ Could not generate payment link', { id: toastId })
       }
     } catch (err) {
-      console.error('Payment initiation failed:', err)
-      const errorMsg =
+      console.error('❌ Payment initiation error:', err)
+      const msg =
         err.response?.data?.message ||
         err.response?.data?.error ||
         err.message ||
         'An unknown error occurred.'
-      setMessage(`❌ Payment initiation failed: ${errorMsg}`)
+      toast.error(`❌ Payment initiation failed: ${msg}`, { id: toastId })
     } finally {
       setLoading(false)
+      setTimeout(() => fetchWalletBalance(email, role), 5000)
     }
   }
 
-  return (
-    <ProtectedRoute>
-      <div className="p-6 max-w-lg mx-auto">
-        <h2 className="text-2xl font-semibold mb-4 text-center">
-          💳 Wallet Funding
-        </h2>
-
-        {/* 🧾 Status Message */}
-        {message && (
-          <div
-            className={`mb-4 p-3 rounded text-white text-sm ${
-              message.includes('❌') ? 'bg-red-500' : 'bg-green-600'
-            }`}
-          >
-            {message}
-          </div>
-        )}
-
-        <form
-          onSubmit={initiatePayment}
-          className="bg-white shadow rounded-lg p-6 space-y-4"
-        >
-          {/* Email Field */}
-          <div>
-            <label className="block text-gray-700 font-medium mb-1">
-              Email Address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
-              required
-            />
-          </div>
-
-          {/* Amount Field */}
-          <div>
-            <label className="block text-gray-700 font-medium mb-1">
-              Amount (₦)
-            </label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Enter amount"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
-              required
-              min="100"
-            />
-          </div>
-
-          {/* Purpose Field */}
-          <div>
-            <label className="block text-gray-700 font-medium mb-1">
-              Payment Purpose
-            </label>
-            <input
-              type="text"
-              value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
-              placeholder="Wallet Funding"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
-            />
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-2 rounded text-white font-medium transition ${
-              loading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {loading ? 'Processing...' : 'Pay Now'}
-          </button>
-        </form>
-
-        <div className="text-center mt-4">
-          <button
-            onClick={() => router.back()}
-            className="text-blue-500 hover:underline text-sm"
-          >
-            ← Back
-          </button>
-        </div>
+  /* ============================================================
+   * UI
+   * ============================================================ */
+  if (!email)
+    return (
+      <div className="flex justify-center items-center h-48 text-gray-600">
+        Loading session...
       </div>
-    </ProtectedRoute>
+    )
+
+  return (
+    <div className="max-w-md mx-auto">
+      <Toaster position="top-center" />
+      <h2 className="text-2xl font-semibold mb-4 text-center">💳 Fund Wallet</h2>
+
+      <div className="mb-4 p-3 rounded text-white text-sm bg-blue-600 text-center">
+        Current Balance: ₦{balance.toLocaleString()}
+      </div>
+
+      <form onSubmit={initiatePayment} className="bg-white shadow rounded-lg p-6 space-y-4">
+        <div>
+          <label className="block text-gray-700 font-medium mb-1">Email Address</label>
+          <input
+            type="email"
+            value={email}
+            disabled
+            className="w-full border border-gray-300 bg-gray-100 rounded-lg px-3 py-2 text-gray-600 cursor-not-allowed"
+          />
+        </div>
+
+        <div>
+          <label className="block text-gray-700 font-medium mb-1">Amount (₦)</label>
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Enter amount"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
+            required
+            min="100"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className={`w-full py-2 rounded text-white font-medium transition ${
+            loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {loading ? 'Processing...' : 'Pay Now'}
+        </button>
+      </form>
+    </div>
   )
 }

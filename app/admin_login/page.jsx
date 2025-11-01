@@ -3,96 +3,94 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
-import api, { saveAuth } from '@/lib/api' // ✅ import saveAuth
+import toast, { Toaster } from 'react-hot-toast'
+import api, { saveAuth } from '@/lib/api'
 
-export default function Login() {
-  const [identifier, setIdentifier] = useState('') // username or email
+export default function AdminLogin() {
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('ADMIN')
-  const [msg, setMsg] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
   const { login } = useAuth()
 
-  async function submit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    setMsg('')
+    setSubmitting(true)
+    const toastId = toast.loading('Logging in as admin...')
 
     try {
-      let response
+      // 🔐 Call backend admin login
+      const response = await api.adminLogin({ username, password })
 
-      // Call backend login for each role
-      if (role === 'ADMIN') {
-        response = await api.adminLogin({ username: identifier, password })
-      } else if (role === 'CUSTOMER') {
-        response = await api.customerLogin({ email: identifier, password })
-      } else if (role === 'SUBVENDOR') {
-        response = await api.subvendorLogin({ email: identifier, password })
-      } else if (role === 'AGGREGATOR') {
-        response = await api.aggregatorLogin({ email: identifier, password })
-      }
+      console.log('Admin login response:', response)
 
-      // Extract token from backend response
       const token = response?.token || response?.data?.token
+      const admin =
+        response?.admin || response?.data?.admin || response?.data?.user || response?.user
 
       if (!token) {
-        setMsg('Login failed: invalid credentials')
+        toast.error('❌ Invalid username or password', { id: toastId })
         return
       }
 
-      // Extract user identifier (username or email) from backend
-      const userIdentifier = response?.username || response?.email || identifier
+      const adminIdentifier = admin?.username || admin?.email || username
 
-      // ✅ Save token and user info in localStorage
-      saveAuth(token, { identifier: userIdentifier, role })
+      // ✅ Save token and login info
+      saveAuth(token, { identifier: adminIdentifier, role: 'ADMIN' })
+      login(token, { identifier: adminIdentifier, role: 'ADMIN' })
 
-      // ✅ Store token and user info in AuthProvider
-      login(token, { identifier: userIdentifier, role })
+      toast.success(`🎉 Welcome back, ${adminIdentifier}!`, {
+        id: toastId,
+        duration: 2000,
+      })
 
-      // Optional: show login successful alert
-      alert(`Login successful! Welcome ${userIdentifier}`)
-
-      // Redirect to dashboard or home page
-      router.push('/admin_dashboard')
+      setTimeout(() => router.push('/admin_dashboard'), 2000)
     } catch (err) {
-      console.error(err)
-      setMsg('Login failed: server error')
+      console.error('Admin login error:', err)
+      const message =
+        err.response?.data?.message ||
+        (typeof err.response?.data === 'string'
+          ? err.response.data
+          : 'An unexpected error occurred. Please try again.')
+      toast.error('❌ ' + message, { id: toastId })
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
-    <div className="max-w-md mx-auto mt-20 bg-white p-6 rounded shadow">
-      <h2 className="text-xl font-semibold mb-4">Login</h2>
-      <form onSubmit={submit} className="space-y-3">
+    <div className="max-w-md mx-auto mt-24 bg-white p-6 rounded-lg shadow-md">
+      <Toaster position="top-center" reverseOrder={false} />
+      <h2 className="text-2xl font-semibold text-center mb-4">👑 Admin Login</h2>
+
+      <form onSubmit={handleSubmit} className="space-y-3">
         <input
-          className="w-full p-2 border rounded"
-          placeholder="Username or Email"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
+          className="w-full p-2 border rounded focus:outline-none focus:ring focus:ring-blue-200"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
         />
+
         <input
-          className="w-full p-2 border rounded"
+          className="w-full p-2 border rounded focus:outline-none focus:ring focus:ring-blue-200"
           placeholder="Password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          required
         />
-        <div className="flex gap-2">
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="p-2 border rounded"
-          >
-            <option>ADMIN</option>
-          </select>
-          <button
-            type="submit"
-            className="px-3 py-2 bg-blue-600 text-white rounded"
-          >
-            Login
-          </button>
-        </div>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className={`w-full py-2 text-white rounded transition ${
+            submitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {submitting ? 'Logging in...' : 'Login'}
+        </button>
       </form>
-      {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
     </div>
   )
 }

@@ -8,16 +8,23 @@ import { useAuth } from '@/components/AuthProvider'
 import api, { getToken } from '@/lib/api'
 
 // Icons
-import { Home, CreditCard, Wallet, Layers, Users, User, LogOut, ChevronDown, Menu } from 'lucide-react'
+import {
+  Home,
+  CreditCard,
+  Wallet,
+  Layers,
+  User,
+  LogOut,
+  ChevronDown,
+  Menu,
+} from 'lucide-react'
 
 // Components
 import WalletDashboard from '@/components/WalletDashboard'
 import PaymentForm from '@/components/PaymentForm'
-import SubvendorDataPlan from '@/components/SubvendorComponents/SubvendorDataPlan'
-import Profile from '@/components/SubvendorComponents/Profile'
-import ManageRetailer from '@/components/SubvendorComponents/ManageRetailer'
+import Profile from '@/components/RetailerComponent/RetailerProfile'
 
-export default function SubvendorDashboard() {
+export default function RetailerDashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -27,10 +34,13 @@ export default function SubvendorDashboard() {
   const router = useRouter()
   const { logout, user } = useAuth()
 
-  const subvendorId = typeof window !== 'undefined' ? localStorage.getItem('subvendorId') : null
+  const retailerId =
+    typeof window !== 'undefined' ? localStorage.getItem('retailerId') : null
+  const subvendorId =
+    typeof window !== 'undefined' ? localStorage.getItem('subvendorId') : null
   const userEmail = user?.email || ''
 
-  // Close dropdown when clicking outside
+  // --- Handle dropdown close ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -41,11 +51,11 @@ export default function SubvendorDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Fetch wallet transactions
+  // --- Fetch wallet transactions ---
   const { data: fetchedTxns, mutate: mutateWallet } = useSWR(
-    subvendorId ? ['subvendor_txns', subvendorId] : null,
+    retailerId ? ['retailer_txns', retailerId] : null,
     async () => {
-      const data = await api.listWalletTransactions(subvendorId)
+      const data = await api.listWalletTransactions(retailerId)
       if (!Array.isArray(data)) return []
       return data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     },
@@ -53,7 +63,7 @@ export default function SubvendorDashboard() {
   )
 
   useEffect(() => {
-    if (fetchedTxns && fetchedTxns.length > 0) {
+    if (fetchedTxns?.length > 0) {
       const latestSuccessTxn = fetchedTxns.find((t) => t.status === 'SUCCESS')
       setWalletBalance(latestSuccessTxn?.balanceAfter || 0)
       setTransactions(fetchedTxns)
@@ -63,15 +73,22 @@ export default function SubvendorDashboard() {
     }
   }, [fetchedTxns])
 
-  // Fetch retailers and data plans
-  const { data: retailers } = useSWR(
-    subvendorId ? ['subvendor_retailers', subvendorId] : null,
-    () => api.listRetailers(subvendorId)
-  )
-
-  const { data: dataPlans, mutate: mutatePlans } = useSWR(
-    subvendorId ? ['subvendor_data_plans', subvendorId] : null,
-    () => api.listSubvendorDataPlans(subvendorId)
+  // --- Fetch data plans from subvendor ---
+  const { data: dataPlans } = useSWR(
+    subvendorId ? ['subvendor_data_plans_for_retailer', subvendorId] : null,
+    async () => {
+      // Retailer sees subvendor’s plans only
+      const data = await api.listSubvendorDataPlans(subvendorId)
+      // Remove base/custom price fields
+      return data?.map((plan) => ({
+        id: plan.id,
+        name: plan.name,
+        network: plan.network,
+        volume: plan.volume,
+        validity: plan.validity,
+        price: plan.customPrice ?? plan.basePrice, // show the price subvendor set
+      })) || []
+    }
   )
 
   const handleLogout = () => {
@@ -79,13 +96,14 @@ export default function SubvendorDashboard() {
     router.push('/')
   }
 
+  // --- Retailer buying plan ---
   const handleBuyPlan = async (plan) => {
-    if (!plan || typeof plan.customPrice !== 'number') {
+    if (!plan || typeof plan.price !== 'number') {
       alert('❌ Invalid plan')
       return
     }
 
-    if (walletBalance < plan.customPrice) {
+    if (walletBalance < plan.price) {
       alert('❌ Insufficient wallet balance')
       return
     }
@@ -96,12 +114,15 @@ export default function SubvendorDashboard() {
 
       const res = await fetch('/api/wallet/debit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
-          userId: subvendorId,
+          userId: retailerId,
           email: userEmail,
-          amount: plan.customPrice,
-          role: 'SUBVENDOR',
+          amount: plan.price,
+          role: 'RETAILER',
           purpose: `Purchased ${plan.name} Data Plan`,
         }),
       })
@@ -109,13 +130,13 @@ export default function SubvendorDashboard() {
       const data = await res.json()
       if (!res.ok) throw new Error(data?.message || res.statusText)
 
-      const newBalance = Number((walletBalance - plan.customPrice).toFixed(2))
+      const newBalance = Number((walletBalance - plan.price).toFixed(2))
       setWalletBalance(newBalance)
 
       const newTxn = {
         id: data.id || `txn_${Date.now()}`,
         txnType: 'DEBIT',
-        amount: plan.customPrice,
+        amount: plan.price,
         balanceAfter: newBalance,
         reference: data.reference || 'N/A',
         status: 'SUCCESS',
@@ -124,35 +145,43 @@ export default function SubvendorDashboard() {
 
       setTransactions((prev) => [newTxn, ...(prev || [])])
       mutateWallet()
-      mutatePlans()
-      alert(`✅ Plan purchased successfully! Wallet debited ₦${plan.customPrice}`)
+      alert(`✅ Purchased ${plan.name} successfully! Wallet debited ₦${plan.price}`)
     } catch (err) {
       console.error('Failed to purchase plan:', err)
       alert(`❌ Failed to purchase plan: ${err?.message || err}`)
     }
   }
 
+  // --- Main Tab Renderer ---
   const renderContent = () => {
     switch (activeTab) {
       case 'WalletBalance':
-        return <WalletDashboard walletBalance={walletBalance} transactions={transactions} />
+        return (
+          <WalletDashboard walletBalance={walletBalance} transactions={transactions} />
+        )
       case 'Fund Wallet':
         return <PaymentForm onWalletUpdate={setWalletBalance} />
-      case 'Retailers':
-        return <ManageRetailer retailers={retailers || []} subvendorId={subvendorId} />
       case 'DataPlans':
-        return <SubvendorDataPlan walletBalance={walletBalance} onBuyPlan={handleBuyPlan} />
+        return (
+          <RetailerDataPlan
+            walletBalance={walletBalance}
+            onBuyPlan={handleBuyPlan}
+            dataPlans={dataPlans || []}
+          />
+        )
       case 'Profile':
         return <Profile />
       default:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-semibold mb-4">Subvendor Dashboard</h2>
+            <h2 className="text-2xl font-semibold mb-4">Retailer Dashboard</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {/* Wallet */}
               <div className="bg-white rounded shadow p-4 flex flex-col items-center">
                 <Wallet className="text-orange-500 mb-2" />
-                <div className="text-3xl font-bold">₦{Number(walletBalance || 0).toFixed(2)}</div>
+                <div className="text-3xl font-bold">
+                  ₦{Number(walletBalance || 0).toFixed(2)}
+                </div>
                 <div className="text-gray-500 mt-2 text-center">Wallet Balance</div>
               </div>
 
@@ -163,18 +192,11 @@ export default function SubvendorDashboard() {
                 <div className="text-gray-500 mt-2 text-center">Transactions</div>
               </div>
 
-              {/* Retailers */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Users className="text-blue-600 mb-2" />
-                <div className="text-3xl font-bold">{retailers?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Retailers</div>
-              </div>
-
               {/* Data Plans */}
               <div className="bg-white rounded shadow p-4 flex flex-col items-center">
                 <Layers className="text-indigo-500 mb-2" />
                 <div className="text-3xl font-bold">{dataPlans?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Data Plans</div>
+                <div className="text-gray-500 mt-2 text-center">Available Plans</div>
               </div>
             </div>
           </div>
@@ -185,7 +207,6 @@ export default function SubvendorDashboard() {
   const tabs = [
     { name: 'Dashboard', icon: <Home className="w-4 h-4 mr-2" /> },
     { name: 'Fund Wallet', icon: <CreditCard className="w-4 h-4 mr-2" /> },
-    { name: 'Retailers', icon: <Users className="w-4 h-4 mr-2" /> },
     { name: 'WalletBalance', icon: <Wallet className="w-4 h-4 mr-2" /> },
     { name: 'DataPlans', icon: <Layers className="w-4 h-4 mr-2" /> },
     { name: 'Profile', icon: <User className="w-4 h-4 mr-2" /> },
@@ -217,7 +238,7 @@ export default function SubvendorDashboard() {
             >
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-gray-600" />
-                <span>Subvendor</span>
+                <span>Retailer</span>
               </div>
               <ChevronDown className="w-4 h-4 text-gray-600" />
             </button>
@@ -247,7 +268,7 @@ export default function SubvendorDashboard() {
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
           <div className="md:hidden flex items-center justify-between bg-white p-4 border-b">
-            <h1 className="text-lg font-semibold">Subvendor Dashboard</h1>
+            <h1 className="text-lg font-semibold">Retailer Dashboard</h1>
             <button
               onClick={() => setSidebarOpen(true)}
               className="text-gray-600 hover:text-gray-800"
@@ -256,7 +277,9 @@ export default function SubvendorDashboard() {
             </button>
           </div>
 
-          <main className="flex-grow p-6 bg-gray-100 overflow-auto">{renderContent()}</main>
+          <main className="flex-grow p-6 bg-gray-100 overflow-auto">
+            {renderContent()}
+          </main>
         </div>
       </div>
     </ProtectedRoute>

@@ -10,8 +10,14 @@ export default function SubvendorDataPlan() {
   const [newPrice, setNewPrice] = useState('')
   const [msg, setMsg] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [margin, setMargin] = useState('') // ✅ new for global margin
+  const [margin, setMargin] = useState('')
   const [applyingMargin, setApplyingMargin] = useState(false)
+  const [avgPrice, setAvgPrice] = useState(null) // ✅ Co-subvendor avg
+  const [warning, setWarning] = useState('') // ✅ Warning message
+
+  const subvendorId = typeof window !== 'undefined'
+    ? localStorage.getItem('subvendorId')
+    : null // Assuming subvendorId is stored in localStorage after login
 
   // ✅ SWR fetcher
   const fetcher = async () => {
@@ -20,6 +26,27 @@ export default function SubvendorDataPlan() {
   }
 
   const { data: plans, error, isLoading, mutate } = useSWR('subvendor_plans', fetcher)
+
+  // ✅ Get co-subvendor average price
+  const fetchCoVendorAverage = async (planId) => {
+    try {
+      const res = await api.get(`/subvendor_plans/${planId}/co-vendor-stats?currentSubvendorId=${subvendorId}`)
+      setAvgPrice(res.data.avgPrice)
+    } catch (err) {
+      console.error('Error fetching co-vendor average:', err)
+    }
+  }
+
+  // ✅ Trigger warning if price is significantly higher
+  const checkPriceDifference = (enteredPrice) => {
+    if (!avgPrice) return
+    const diffPercent = ((enteredPrice - avgPrice) / avgPrice) * 100
+    if (diffPercent > 15) {
+      setWarning('⚠️ Your price is significantly higher; you may lose customers.')
+    } else {
+      setWarning('')
+    }
+  }
 
   // ✅ Manual update of a single plan
   const handlePriceUpdate = async (e) => {
@@ -63,7 +90,6 @@ export default function SubvendorDataPlan() {
         customPrice: parseFloat((p.basePrice * (1 + percent / 100)).toFixed(2)),
       }))
 
-      // Bulk update all plans
       for (const plan of updatedPlans) {
         await api.updateSubvendorDataPlan(plan.id, { customPrice: plan.customPrice })
       }
@@ -125,6 +151,7 @@ export default function SubvendorDataPlan() {
           </p>
         </div>
 
+        {/* ✅ Data Plans Table */}
         <div className="bg-white rounded shadow p-4 overflow-x-auto">
           {isLoading && <p>Loading data plans...</p>}
           {error && (
@@ -161,7 +188,6 @@ export default function SubvendorDataPlan() {
                       <td className="p-2">{p.dataServices || '-'}</td>
                       <td className="p-2">{p.basePrice?.toFixed(2) || '0.00'}</td>
 
-                      {/* ✅ Highlighted Custom Price */}
                       <td
                         className={`p-2 font-semibold text-blue-800 ${
                           p.customPrice > p.basePrice
@@ -205,7 +231,10 @@ export default function SubvendorDataPlan() {
                       </td>
                       <td className="p-2 text-center">
                         <button
-                          onClick={() => setSelectedPlan(p)}
+                          onClick={() => {
+                            setSelectedPlan(p)
+                            fetchCoVendorAverage(p.id)
+                          }}
                           className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
                         >
                           Update Price
@@ -225,11 +254,16 @@ export default function SubvendorDataPlan() {
           )}
         </div>
 
+        {/* ✅ Update Modal */}
         {selectedPlan && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
             <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md relative">
               <button
-                onClick={() => setSelectedPlan(null)}
+                onClick={() => {
+                  setSelectedPlan(null)
+                  setWarning('')
+                  setAvgPrice(null)
+                }}
                 className="absolute top-2 right-2 text-gray-400 hover:text-gray-700"
               >
                 ✕
@@ -237,9 +271,14 @@ export default function SubvendorDataPlan() {
 
               <h3 className="text-lg font-semibold mb-3">Update Custom Price</h3>
 
-              <p className="text-sm mb-4 text-gray-600">
+              <p className="text-sm mb-2 text-gray-600">
                 Plan: <strong>{selectedPlan.name}</strong>
               </p>
+              {avgPrice && (
+                <p className="text-xs text-gray-500 mb-3">
+                  Avg price from co-subvendors: ₦{avgPrice.toFixed(2)}
+                </p>
+              )}
 
               <form onSubmit={handlePriceUpdate} className="space-y-3">
                 <input
@@ -247,10 +286,20 @@ export default function SubvendorDataPlan() {
                   step="0.01"
                   placeholder="Enter new price"
                   value={newPrice}
-                  onChange={(e) => setNewPrice(e.target.value)}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value)
+                    setNewPrice(e.target.value)
+                    checkPriceDifference(val)
+                  }}
                   className="w-full border rounded p-2"
                   required
                 />
+
+                {warning && (
+                  <p className="text-xs text-yellow-600 bg-yellow-50 border border-yellow-300 rounded p-2">
+                    {warning}
+                  </p>
+                )}
 
                 <button
                   type="submit"

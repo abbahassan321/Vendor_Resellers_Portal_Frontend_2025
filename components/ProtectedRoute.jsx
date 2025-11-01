@@ -1,19 +1,19 @@
 'use client';
 import { useAuth } from './AuthProvider';
-import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function ProtectedRoute({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/');
+    if (authReady && !isAuthenticated) {
+      router.push('/'); // redirect only when ready
     }
-  }, [isAuthenticated, router]);
+  }, [authReady, isAuthenticated, router]);
 
-  if (!isAuthenticated) return null;
+  if (!authReady) return <div>Loading...</div>; // ✅ wait until we know auth state
 
-  return <>{children}</>;
+  return isAuthenticated ? children : null;
 }

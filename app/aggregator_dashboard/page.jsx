@@ -5,12 +5,11 @@ import useSWR from 'swr'
 import { useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/components/AuthProvider'
-import api from '@/lib/api'
+import api, { getToken } from '@/lib/api'
 
 // Icons
 import {
   Home,
-  CreditCard,
   Wallet,
   Layers,
   Users,
@@ -33,9 +32,15 @@ export default function AggregatorDashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [walletBalance, setWalletBalance] = useState(0)
+  const [transactions, setTransactions] = useState([])
   const router = useRouter()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const dropdownRef = useRef(null)
+
+  // aggregatorId stored in localStorage on client-side
+  const aggregatorId = typeof window !== 'undefined' ? localStorage.getItem('aggregatorId') : null
+  const userEmail = user?.email || ''
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -48,26 +53,70 @@ export default function AggregatorDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Fetch data
-  const { data: txns } = useSWR('walletTxns', api.listWalletTransactions)
-  const { data: subvendors } = useSWR('subvendors', api.listSubvendors)
-  const { data: dataPlans } = useSWR('dataPlans', api.listDataPlans)
-  const { data: customers } = useSWR('customers', api.listCustomers)
+  // Fetch wallet transactions and keep local state in sync (only when aggregatorId exists)
+  const { data: fetchedTxns, mutate: mutateWallet } = useSWR(
+    aggregatorId ? ['aggregator_txns', aggregatorId] : null,
+    async () => {
+      const data = await api.listWalletTransactions(aggregatorId)
+      if (!Array.isArray(data)) return []
+      // newest first
+      return data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    },
+    { refreshInterval: 10000 }
+  )
+
+  useEffect(() => {
+    if (Array.isArray(fetchedTxns) && fetchedTxns.length > 0) {
+      const latestSuccessTxn = fetchedTxns.find((t) => t.status === 'SUCCESS')
+      setWalletBalance(latestSuccessTxn?.balanceAfter || 0)
+      setTransactions(fetchedTxns)
+    } else if (Array.isArray(fetchedTxns)) {
+      setWalletBalance(0)
+      setTransactions([])
+    }
+  }, [fetchedTxns])
+
+  // Fetch other lists (conditionally keyed by aggregatorId so we don't fetch on server or before id available)
+  const { data: subvendors } = useSWR(
+    aggregatorId ? ['subvendors', aggregatorId] : null,
+    () => api.listSubvendors(aggregatorId)
+  )
+  const { data: dataPlans } = useSWR(
+    aggregatorId ? ['dataPlans', aggregatorId] : null,
+    () => api.listDataPlans(aggregatorId)
+  )
+  const { data: customers } = useSWR(
+    aggregatorId ? ['customers', aggregatorId] : null,
+    () => api.listCustomers(aggregatorId)
+  )
 
   const handleLogout = () => {
     logout()
     router.push('/')
   }
 
+  // If you later want to allow aggregator to debit/credit wallets from UI, you can
+  // add handlers that use getToken() and call your /api/wallet endpoints and then
+  // optimistically update setWalletBalance and setTransactions and call mutateWallet().
+
   // Render main content per tab
   const renderContent = () => {
     switch (activeTab) {
-      case 'Payments':
-        return <PaymentForm />
+      case 'Fund Wallet':
+        // pass updater so PaymentForm can update balance optimistically / on success
+        return <PaymentForm onWalletUpdate={setWalletBalance} />
       case 'WalletTransactions':
-        return <WalletTransactions />
+        return (
+          <WalletTransactions
+            walletBalance={walletBalance}
+            transactions={transactions}
+            // pass mutate so child can revalidate if it performs actions
+            mutateWallet={mutateWallet}
+          />
+        )
       case 'Subvendors':
         return <ManageSubvendor />
+      case 'DataPlans':
       case 'DataPlans':
         return <ManageDataPlans />
       case 'Customers':
@@ -80,13 +129,13 @@ export default function AggregatorDashboard() {
             <h2 className="text-2xl font-semibold mb-4">Dashboard</h2>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <CreditCard className="text-green-500 mb-2" />
-                <div className="text-3xl font-bold">{txns?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Payments</div>
+                <Wallet className="text-orange-400 mb-2" />
+                <div className="text-3xl font-bold">₦{Number(walletBalance || 0).toFixed(2)}</div>
+                <div className="text-gray-500 mt-2 text-center">Wallet Balance</div>
               </div>
               <div className="bg-white rounded shadow p-4 flex flex-col items-center">
                 <Wallet className="text-orange-500 mb-2" />
-                <div className="text-3xl font-bold">{txns?.length || 0}</div>
+                <div className="text-3xl font-bold">{(transactions?.length) || 0}</div>
                 <div className="text-gray-500 mt-2 text-center">Wallet Transactions</div>
               </div>
               <div className="bg-white rounded shadow p-4 flex flex-col items-center">
@@ -104,6 +153,7 @@ export default function AggregatorDashboard() {
                 <div className="text-3xl font-bold">{customers?.length || 0}</div>
                 <div className="text-gray-500 mt-2 text-center">Customers</div>
               </div>
+              
             </div>
           </div>
         )
@@ -112,7 +162,6 @@ export default function AggregatorDashboard() {
 
   const tabs = [
     { name: 'Dashboard', icon: <Home className="w-4 h-4 mr-2" /> },
-    { name: 'Payments', icon: <CreditCard className="w-4 h-4 mr-2" /> },
     { name: 'WalletTransactions', icon: <Wallet className="w-4 h-4 mr-2" /> },
     { name: 'Subvendors', icon: <UserCheck className="w-4 h-4 mr-2" /> },
     { name: 'DataPlans', icon: <Layers className="w-4 h-4 mr-2" /> },
@@ -199,9 +248,7 @@ export default function AggregatorDashboard() {
                   }`}
                 >
                   {tab.icon}
-                  {tab.name === 'WalletTransactions'
-                    ? 'Wallet Transactions'
-                    : tab.name}
+                  {tab.name === 'WalletTransactions' ? 'Wallet Transactions' : tab.name}
                 </button>
               ))}
               <div className="border-t mt-3 pt-2">
