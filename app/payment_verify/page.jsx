@@ -1,5 +1,5 @@
 'use client'
-export const dynamic = 'force-dynamic';
+export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -14,6 +14,9 @@ export default function VerifyPaymentPage() {
   const [verifying, setVerifying] = useState(true)
 
   useEffect(() => {
+    // Ensure this only runs in the browser
+    if (typeof window === 'undefined') return
+
     const reference = searchParams.get('reference')
 
     if (!reference) {
@@ -35,11 +38,20 @@ export default function VerifyPaymentPage() {
           data?.data?.status === 'success'
 
         if (isSuccess) {
-          localStorage.setItem('last_payment_details', JSON.stringify(data))
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('last_payment_details', JSON.stringify(data))
+          }
 
           // 🧠 Use user from context, fallback to localStorage
-          const currentUser =
-            user || JSON.parse(localStorage.getItem('user') || '{}')
+          let currentUser = user
+          if (!currentUser && typeof window !== 'undefined') {
+            try {
+              currentUser = JSON.parse(localStorage.getItem('user') || '{}')
+            } catch {
+              currentUser = {}
+            }
+          }
+
           const role = currentUser?.role?.toLowerCase() || 'customer'
 
           const redirectMap = {
@@ -66,9 +78,9 @@ export default function VerifyPaymentPage() {
       } catch (err) {
         console.error('❌ Payment verification error:', err)
         const errMsg =
-          err.response?.data?.message ||
-          err.response?.data?.error ||
-          err.message ||
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
           'Payment verification failed.'
         toast.error('❌ ' + errMsg, { id: toastId })
       } finally {
