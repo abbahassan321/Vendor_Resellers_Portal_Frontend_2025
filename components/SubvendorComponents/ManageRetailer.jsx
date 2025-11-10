@@ -6,7 +6,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function ManageRetailers() {
   const [subvendor, setSubvendor] = useState(null)
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' })
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', businessName: '' })
   const [showModal, setShowModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [selectedRetailer, setSelectedRetailer] = useState(null)
@@ -47,6 +47,7 @@ export default function ManageRetailers() {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
+          businessName: formData.businessName,
         })
         showToast('success', 'Retailer updated successfully.')
       } else {
@@ -57,7 +58,7 @@ export default function ManageRetailers() {
 
       mutate()
       setShowModal(false)
-      setFormData({ name: '', email: '', phone: '', password: '' })
+      setFormData({ name: '', email: '', phone: '', password: '', businessName: '' })
     } catch (err) {
       console.error('Retailer creation failed:', err)
       const msg =
@@ -122,6 +123,7 @@ export default function ManageRetailers() {
                 <tr>
                   <th className="py-2 px-3">ID</th>
                   <th className="py-2 px-3">Name</th>
+                  <th className="py-2 px-3">Business Name</th>
                   <th className="py-2 px-3">Email</th>
                   <th className="py-2 px-3">Phone</th>
                   <th className="py-2 px-3 text-center">Actions</th>
@@ -132,6 +134,7 @@ export default function ManageRetailers() {
                   <tr key={r.id} className="border-b hover:bg-gray-50">
                     <td className="py-2 px-3">{r.id}</td>
                     <td className="py-2 px-3 font-medium">{r.name}</td>
+                    <td className="py-2 px-3">{r.businessName || '-'}</td>
                     <td className="py-2 px-3">{r.email}</td>
                     <td className="py-2 px-3">{r.phone}</td>
                     <td className="py-2 px-3 text-center space-x-3">
@@ -144,6 +147,7 @@ export default function ManageRetailers() {
                             email: r.email,
                             phone: r.phone,
                             password: '',
+                            businessName: r.businessName || '',
                           })
                           setShowModal(true)
                         }}
@@ -186,6 +190,14 @@ export default function ManageRetailers() {
                   name="name"
                   placeholder="Name"
                   value={formData.name}
+                  onChange={handleChange}
+                  className="border rounded px-3 py-2 w-full"
+                  required
+                />
+                <input
+                  name="businessName"
+                  placeholder="Business Name"
+                  value={formData.businessName}
                   onChange={handleChange}
                   className="border rounded px-3 py-2 w-full"
                   required

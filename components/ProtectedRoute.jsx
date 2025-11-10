@@ -1,19 +1,36 @@
-'use client';
-import { useAuth } from './AuthProvider';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from './AuthProvider'
 
 export default function ProtectedRoute({ children }) {
-  const { isAuthenticated, authReady } = useAuth();
-  const router = useRouter();
+  const { isAuthenticated, authReady } = useAuth()
+  const router = useRouter()
+  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    if (authReady && !isAuthenticated) {
-      router.push('/'); // redirect only when ready
+    if (!authReady) return // wait until auth state is determined
+
+    // ✅ If not authenticated (e.g. token expired or refresh), redirect to landing
+    if (!isAuthenticated) {
+      const timeout = setTimeout(() => {
+        router.replace('/') // force landing page
+      }, 500) // small delay for smooth redirect
+
+      return () => clearTimeout(timeout)
+    } else {
+      setChecking(false)
     }
-  }, [authReady, isAuthenticated, router]);
+  }, [authReady, isAuthenticated, router])
 
-  if (!authReady) return <div>Loading...</div>; // ✅ wait until we know auth state
+  // ✅ Show loading state until we know auth status
+  if (checking || !authReady)
+    return (
+      <div className="flex items-center justify-center h-screen text-gray-600 animate-pulse">
+        Checking session...
+      </div>
+    )
 
-  return isAuthenticated ? children : null;
+  return isAuthenticated ? children : null
 }

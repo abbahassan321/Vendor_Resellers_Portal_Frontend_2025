@@ -1,34 +1,74 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { Loader2, RefreshCcw } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 
+/**
+ * 🧩 Admin Subvendor List Page
+ * Fetches and displays all subvendors with search, filter, and real-time updates.
+ */
 export default function SubvendorList() {
-  const { data: subs, error, isLoading } = useSWR('subs', api.listSubvendors);
+  const previousSubsRef = useRef([]);
 
-  // ✅ State for search term and field selection
+  // ✅ SWR data fetching with auto-refresh every 5 seconds for more real-time updates
+  const { data: subs, error, isLoading, mutate } = useSWR(
+    'subvendors',
+    async () => {
+      return await api.listSubvendors();
+    },
+    { refreshInterval: 5000 } // fetch every 5 seconds
+  );
+
+  // Compare old vs new data for notifications
+  useEffect(() => {
+    if (!subs || !Array.isArray(subs)) return;
+    const previousSubs = previousSubsRef.current;
+    if (previousSubs.length < subs.length) {
+      // Find newly added subvendors
+      const newSubs = subs.filter(
+        (s) => !previousSubs.some((p) => p.id === s.id)
+      );
+      newSubs.forEach((s) =>
+        toast.success(`New subvendor added: ${s.businessName}`)
+      );
+    }
+    previousSubsRef.current = subs;
+  }, [subs]);
+
+  // ✅ State for search/filter
   const [filterField, setFilterField] = useState('businessName');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // ✅ Filtered subvendors based on selected field
+  // ✅ Filtered subvendors based on search
   const filteredSubs = useMemo(() => {
     if (!subs || !Array.isArray(subs)) return [];
     if (!searchTerm) return subs;
 
     return subs.filter((s) => {
-      const fieldValue = String(s[filterField] || '').toLowerCase();
-      return fieldValue.includes(searchTerm.toLowerCase());
+      const value = String(s[filterField] || '').toLowerCase();
+      return value.includes(searchTerm.toLowerCase());
     });
   }, [subs, searchTerm, filterField]);
 
   return (
-    <ProtectedRoute>
-      <div className="p-6">
-        <h2 className="text-2xl font-semibold mb-4">Subvendors</h2>
+    <ProtectedRoute allowedRoles={['ADMIN', 'SUPERADMIN']}>
+      <Toaster position="top-right" reverseOrder={false} />
+      <div className="p-6 space-y-5">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-semibold">Subvendors</h2>
+          <button
+            onClick={() => mutate()}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            <RefreshCcw size={16} /> Refresh
+          </button>
+        </div>
 
-        {/* 🔍 Filter Bar */}
-        <div className="flex flex-wrap items-center gap-3 mb-6 bg-gray-50 p-4 rounded-lg shadow-sm">
+        {/* 🔍 Search and Filter */}
+        <div className="flex flex-wrap items-center gap-3 bg-gray-50 p-4 rounded-lg shadow-sm">
           <select
             value={filterField}
             onChange={(e) => setFilterField(e.target.value)}
@@ -37,6 +77,7 @@ export default function SubvendorList() {
             <option value="businessName">Business Name</option>
             <option value="email">Email</option>
             <option value="phone">Phone</option>
+            <option value="contactPerson">Contact Person</option>
           </select>
 
           <input
@@ -50,61 +91,66 @@ export default function SubvendorList() {
           />
         </div>
 
-        {/* 🌀 Loading State */}
+        {/* 🌀 Loading */}
         {isLoading && (
-          <div className="text-gray-500 text-sm">Loading subvendors...</div>
+          <div className="flex items-center gap-2 text-gray-500 text-sm">
+            <Loader2 className="animate-spin" size={16} /> Loading subvendors...
+          </div>
         )}
 
-        {/* ❌ Error State */}
+        {/* ❌ Error */}
         {error && (
           <div className="text-red-500 text-sm">
             Failed to load subvendors. Please try again later.
           </div>
         )}
 
-        {/* ✅ Data List */}
-        <div className="bg-white rounded shadow p-4 overflow-x-auto">
-          {filteredSubs.length > 0 ? (
-            <table className="min-w-full text-sm text-left border-collapse">
-              <thead className="border-b font-medium bg-gray-50">
-                <tr>
-                  <th className="py-2 px-3">#ID</th>
-                  <th className="py-2 px-3">Business Name</th>
-                  <th className="py-2 px-3">Contact Person</th>
-                  <th className="py-2 px-3">Email</th>
-                  <th className="py-2 px-3">Phone</th>
-                  <th className="py-2 px-3">Address</th>
-                  <th className="py-2 px-3">Created At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSubs.map((s) => (
-                  <tr key={s.id} className="border-b hover:bg-gray-50">
-                    <td className="py-2 px-3 text-gray-700">{s.id || '—'}</td>
-                    <td className="py-2 px-3 font-medium text-gray-900">
-                      {s.businessName || '—'}
-                    </td>
-                    <td className="py-2 px-3">
-                      {s.contactPerson?.trim() || '—'}
-                    </td>
-                    <td className="py-2 px-3">{s.email || '—'}</td>
-                    <td className="py-2 px-3">{s.phone || '—'}</td>
-                    <td className="py-2 px-3">{s.address || '—'}</td>
-                    <td className="py-2 px-3 text-gray-500">
-                      {s.createdAt
-                        ? new Date(s.createdAt).toLocaleString()
-                        : '—'}
-                    </td>
+        {/* ✅ Table Display */}
+        {!isLoading && !error && (
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            {filteredSubs.length > 0 ? (
+              <table className="min-w-full text-sm text-left border-collapse">
+                <thead className="border-b font-medium bg-gray-50">
+                  <tr>
+                    <th className="py-2 px-3">#ID</th>
+                    <th className="py-2 px-3">Business Name</th>
+                    <th className="py-2 px-3">Contact Person</th>
+                    <th className="py-2 px-3">Email</th>
+                    <th className="py-2 px-3">Phone</th>
+                    <th className="py-2 px-3">Address</th>
+                    <th className="py-2 px-3">Wallet</th>
+                    <th className="py-2 px-3">Created At</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            !isLoading && (
-              <div className="text-sm text-gray-500">No subvendors found.</div>
-            )
-          )}
-        </div>
+                </thead>
+                <tbody>
+                  {filteredSubs.map((s, i) => (
+                    <tr
+                      key={s.id || i}
+                      className="border-b hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="py-2 px-3 text-gray-700">{s.id || '—'}</td>
+                      <td className="py-2 px-3 font-medium text-gray-900">
+                        {s.businessName || '—'}
+                      </td>
+                      <td className="py-2 px-3">{s.contactPerson?.trim() || '—'}</td>
+                      <td className="py-2 px-3">{s.email || '—'}</td>
+                      <td className="py-2 px-3">{s.phone || '—'}</td>
+                      <td className="py-2 px-3">{s.address || '—'}</td>
+                      <td className="py-2 px-3 text-gray-700">
+                        ₦{s.walletBalance?.toLocaleString() || '0.00'}
+                      </td>
+                      <td className="py-2 px-3 text-gray-500">
+                        {s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-sm text-gray-500 p-4">No subvendors found.</div>
+            )}
+          </div>
+        )}
       </div>
     </ProtectedRoute>
   );

@@ -27,6 +27,7 @@ import ManageDataPlans from '@/components/AdminComponents/ManageDataPlans'
 import SubvendorList from '@/components/AdminComponents/SubvendorList'
 import ManageAggregetors from '@/components/AdminComponents/ManageAggregetors'
 import CustomerList from '@/components/AdminComponents/CustomerList'
+import SuperAdminProfile from '@/components/AdminComponents/Profile'
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard')
@@ -59,6 +60,7 @@ export default function AdminDashboard() {
     router.push('/login')
   }
 
+  // Render dashboard content
   const renderContent = () => {
     switch (activeTab) {
       case 'WalletTransactions':
@@ -71,37 +73,42 @@ export default function AdminDashboard() {
         return <ManageAggregetors />
       case 'Customers':
         return <CustomerList />
+        case 'Profile':
+        return <SuperAdminProfile />
       default:
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold mb-4">Dashboard</h2>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Users className="text-blue-500 mb-2" />
-                <div className="text-3xl font-bold">{customers?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Customers</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+              {/* Customers */}
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Users className="text-blue-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{customers?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Customers</div>
               </div>
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <CreditCard className="text-green-500 mb-2" />
-                <div className="text-3xl font-bold">{payments?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Payments</div>
+              {/* Transactions */}
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <CreditCard className="text-green-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{payments?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Transactions</div>
               </div>
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <UserCheck className="text-purple-500 mb-2" />
-                <div className="text-3xl font-bold">{subvendors?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Subvendors</div>
+              {/* Subvendors */}
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <UserCheck className="text-purple-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{subvendors?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Subvendors</div>
               </div>
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Wallet className="text-orange-500 mb-2" />
-                <div className="text-3xl font-bold">{txns?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">
-                  Wallet Transactions
-                </div>
+              {/* Wallet Transactions */}
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Wallet className="text-orange-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{txns?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Wallet Transactions</div>
               </div>
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Layers className="text-red-500 mb-2" />
-                <div className="text-3xl font-bold">{aggregators?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Aggregators</div>
+              {/* Aggregators */}
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Layers className="text-red-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{aggregators?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Aggregators</div>
               </div>
             </div>
           </div>
@@ -123,7 +130,7 @@ export default function AdminDashboard() {
     <ProtectedRoute>
       <div className="flex min-h-screen">
         {/* ===== Desktop Sidebar ===== */}
-        <aside className="hidden md:flex w-64 bg-white border-r p-4 flex-col space-y-2">
+        <aside className="hidden md:flex w-64 bg-white border-r p-3 flex flex-col space-y-2">
           {tabs.map((tab) => (
             <button
               key={tab.name}
@@ -137,7 +144,7 @@ export default function AdminDashboard() {
             </button>
           ))}
 
-          {/* ✅ Profile Dropdown */}
+          {/* Profile Dropdown */}
           <div className="relative mt-auto" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -179,7 +186,7 @@ export default function AdminDashboard() {
               className="fixed inset-0 bg-black bg-opacity-50"
               onClick={() => setSidebarOpen(false)}
             ></div>
-            <div className="relative w-64 bg-white border-r p-4 flex flex-col space-y-2">
+            <div className="relative w-64 bg-white border-r p-3 flex flex-col space-y-2">
               <button
                 className="self-end mb-4 text-gray-500 hover:text-gray-700"
                 onClick={() => setSidebarOpen(false)}
@@ -240,7 +247,7 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          <main className="flex-grow p-6 bg-gray-100 overflow-auto">
+          <main className="flex-grow p-4 md:p-6 bg-gray-100 overflow-auto">
             {renderContent()}
           </main>
         </div>

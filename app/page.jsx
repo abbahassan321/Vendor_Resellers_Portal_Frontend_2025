@@ -55,9 +55,9 @@ export default function Home() {
           className="mt-8"
         >
           <img
-            src="/hero.png"
+            src="/Hero.png"
             alt="GloVendor Hero"
-            className="w-full max-w-md mx-auto drop-shadow-lg rounded-2xl"
+            className="w-300 max-w-md mx-auto drop-shadow-lg rounded-2xl"
           />
         </motion.div>
 

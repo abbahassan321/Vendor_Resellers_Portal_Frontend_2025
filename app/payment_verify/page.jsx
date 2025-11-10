@@ -12,21 +12,22 @@ export default function VerifyPaymentPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [verifying, setVerifying] = useState(true)
+  const [toastId, setToastId] = useState(null)
 
   useEffect(() => {
-    // Ensure this only runs in the browser
     if (typeof window === 'undefined') return
 
     const reference = searchParams.get('reference')
-
     if (!reference) {
       toast.error('❌ No payment reference found in URL.')
       setVerifying(false)
       return
     }
 
+    let didCancel = false
+
     async function verifyPayment() {
-      const toastId = toast.loading('🔄 Verifying your payment...')
+      if (!toastId) setToastId(toast.loading('🔄 Verifying your payment...'))
 
       try {
         const res = await api.get(`/api/payments/verify/${reference}`)
@@ -37,62 +38,74 @@ export default function VerifyPaymentPage() {
           data?.status?.toUpperCase() === 'SUCCESS' ||
           data?.data?.status === 'success'
 
-        if (isSuccess) {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('last_payment_details', JSON.stringify(data))
-          }
-
-          // 🧠 Use user from context, fallback to localStorage
-          let currentUser = user
-          if (!currentUser && typeof window !== 'undefined') {
-            try {
-              currentUser = JSON.parse(localStorage.getItem('user') || '{}')
-            } catch {
-              currentUser = {}
+        if (!didCancel) {
+          if (isSuccess) {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('last_payment_details', JSON.stringify(data))
             }
+
+            // Fallback to localStorage if user is null
+            let currentUser = user
+            if (!currentUser && typeof window !== 'undefined') {
+              try {
+                currentUser = JSON.parse(localStorage.getItem('user') || '{}')
+              } catch {
+                currentUser = {}
+              }
+            }
+
+            const role = currentUser?.role?.toLowerCase() || 'customer'
+
+            const redirectMap = {
+              aggregator: '/aggregator_dashboard',
+              subvendor: '/subvendor_dashboard',
+              customer: '/customer_dashboard',
+              retailer: '/retailer_dashboard',
+            }
+
+            const dashboardRoute = redirectMap[role] || '/dashboard'
+
+            // ✅ Use same toastId to prevent duplicates
+            toast.success('🎉 Payment verified successfully!', {
+              id: toastId,
+              duration: 2500,
+            })
+
+            setTimeout(() => {
+              router.push(dashboardRoute)
+            }, 2000)
+          } else {
+            toast.error('⚠️ Payment not successful or still pending.', {
+              id: toastId,
+            })
           }
-
-          const role = currentUser?.role?.toLowerCase() || 'customer'
-
-          const redirectMap = {
-            aggregator: '/aggregator_dashboard',
-            subvendor: '/subvendor_dashboard',
-            customer: '/customer_dashboard',
-          }
-
-          const dashboardRoute = redirectMap[role] || '/dashboard'
-
-          toast.success('🎉 Payment verified successfully!', {
-            id: toastId,
-            duration: 2500,
-          })
-
-          setTimeout(() => {
-            router.push(dashboardRoute)
-          }, 2000)
-        } else {
-          toast.error('⚠️ Payment not successful or still pending.', {
-            id: toastId,
-          })
         }
       } catch (err) {
-        console.error('❌ Payment verification error:', err)
-        const errMsg =
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message ||
-          'Payment verification failed.'
-        toast.error('❌ ' + errMsg, { id: toastId })
+        if (!didCancel) {
+          console.error('❌ Payment verification error:', err)
+          const errMsg =
+            err?.response?.data?.message ||
+            err?.response?.data?.error ||
+            err?.message ||
+            'Payment verification failed.'
+
+          toast.error('❌ ' + errMsg, { id: toastId })
+        }
       } finally {
-        setVerifying(false)
+        if (!didCancel) setVerifying(false)
       }
     }
 
     verifyPayment()
-  }, [searchParams, router, user])
+
+    return () => {
+      didCancel = true
+    }
+  }, [searchParams, router, user, toastId])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
+      {/* Single Toaster */}
       <Toaster position="top-center" reverseOrder={false} />
 
       {verifying ? (

@@ -1,109 +1,144 @@
-'use client'
+"use client";
 
-import useSWR from 'swr'
-import { useState } from 'react'
-import api, { getToken } from '@/lib/api'
-import ProtectedRoute from '@/components/ProtectedRoute'
+import useSWR from "swr";
+import { useState, useEffect } from "react";
+import api, { getToken } from "@/lib/api";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function SubvendorDataPlan() {
-  const [selectedPlan, setSelectedPlan] = useState(null)
-  const [newPrice, setNewPrice] = useState('')
-  const [msg, setMsg] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [margin, setMargin] = useState('')
-  const [applyingMargin, setApplyingMargin] = useState(false)
-  const [avgPrice, setAvgPrice] = useState(null) // ✅ Co-subvendor avg
-  const [warning, setWarning] = useState('') // ✅ Warning message
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [newPrice, setNewPrice] = useState("");
+  const [profitPreview, setProfitPreview] = useState(0);
+  const [msg, setMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [margin, setMargin] = useState("");
+  const [applyingMargin, setApplyingMargin] = useState(false);
+  const [avgPrice, setAvgPrice] = useState(null);
+  const [warning, setWarning] = useState("");
+  const [subvendorId, setSubvendorId] = useState(null);
 
-  const subvendorId = typeof window !== 'undefined'
-    ? localStorage.getItem('subvendorId')
-    : null // Assuming subvendorId is stored in localStorage after login
+  // Load subvendor ID
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const id =
+        localStorage.getItem("glovendor_identifier") ||
+        localStorage.getItem("subvendorId");
+      setSubvendorId(id);
+    }
+  }, []);
 
-  // ✅ SWR fetcher
+  // SWR fetcher
   const fetcher = async () => {
-    if (!getToken()) throw new Error('Not authenticated')
-    return api.listSubvendorDataPlans()
-  }
+    const token = getToken();
+    if (!token) throw new Error("Not authenticated");
+    if (!subvendorId) throw new Error("Missing subvendor ID");
 
-  const { data: plans, error, isLoading, mutate } = useSWR('subvendor_plans', fetcher)
+    const res = await api.get(`/api/subvendor_plans/${subvendorId}`);
+    return res.data;
+  };
 
-  // ✅ Get co-subvendor average price
+  const { data: plans, error, isLoading, mutate } = useSWR(
+    subvendorId ? `subvendor_plans_${subvendorId}` : null,
+    fetcher
+  );
+
+  // Fetch co-vendor average price
   const fetchCoVendorAverage = async (planId) => {
     try {
-      const res = await api.get(`/subvendor_plans/${planId}/co-vendor-stats?currentSubvendorId=${subvendorId}`)
-      setAvgPrice(res.data.avgPrice)
+      const res = await api.get(
+        `/api/subvendor_plans/${planId}/co-vendor-stats?currentSubvendorId=${subvendorId}`
+      );
+      setAvgPrice(res.data.avgPrice || 0);
     } catch (err) {
-      console.error('Error fetching co-vendor average:', err)
+      console.error("Error fetching co-vendor average:", err);
+      setAvgPrice(0);
     }
-  }
+  };
 
-  // ✅ Trigger warning if price is significantly higher
+  // Price warning
   const checkPriceDifference = (enteredPrice) => {
-    if (!avgPrice) return
-    const diffPercent = ((enteredPrice - avgPrice) / avgPrice) * 100
-    if (diffPercent > 15) {
-      setWarning('⚠️ Your price is significantly higher; you may lose customers.')
-    } else {
-      setWarning('')
-    }
-  }
+    if (!avgPrice) return;
+    const diffPercent = ((enteredPrice - avgPrice) / avgPrice) * 100;
+    setWarning(
+      diffPercent > 15
+        ? "⚠️ Your price is significantly higher; you may lose customers."
+        : ""
+    );
+  };
 
-  // ✅ Manual update of a single plan
+  // Update single plan
   const handlePriceUpdate = async (e) => {
-    e.preventDefault()
-    if (!selectedPlan) return
-    if (!newPrice || isNaN(newPrice)) {
-      return setMsg('❌ Please enter a valid price')
-    }
+    e.preventDefault();
+    if (!selectedPlan) return;
+    if (!newPrice || isNaN(newPrice))
+      return setMsg("❌ Please enter a valid price");
 
-    setSubmitting(true)
-    setMsg('')
+    setSubmitting(true);
+    setMsg("");
 
     try {
-      await api.updateSubvendorDataPlan(selectedPlan.id, {
+      const res = await api.patch(`/api/subvendor_plans/${selectedPlan.id}`, {
         customPrice: parseFloat(newPrice),
-      })
-      setMsg('✅ Price updated successfully!')
-      setSelectedPlan(null)
-      setNewPrice('')
-      await mutate()
+      });
+
+      const updatedPlan = res.data;
+      setMsg("✅ Price updated successfully!");
+
+      // Update SWR cache locally
+      mutate(
+        plans.map((p) => (p.id === updatedPlan.id ? updatedPlan : p)),
+        false
+      );
+      setSelectedPlan({ ...selectedPlan, customPrice: updatedPlan.customPrice });
     } catch (err) {
-      console.error(err)
-      setMsg('❌ Failed to update price. Try again.')
+      console.error(err);
+      setMsg("❌ Failed to update price. Try again.");
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
-  // ✅ Apply percentage margin to all plans
+  // Apply global margin
   const handleApplyMargin = async () => {
-    if (!margin || isNaN(margin)) return setMsg('❌ Enter a valid percentage')
-    if (!plans || plans.length === 0) return setMsg('❌ No plans to update')
+    if (!margin || isNaN(margin)) return setMsg("❌ Enter a valid percentage");
+    if (!subvendorId) return setMsg("❌ Missing subvendor ID");
 
-    setApplyingMargin(true)
-    setMsg('')
+    setApplyingMargin(true);
+    setMsg("");
 
     try {
-      const percent = parseFloat(margin)
-      const updatedPlans = plans.map((p) => ({
-        id: p.id,
-        customPrice: parseFloat((p.basePrice * (1 + percent / 100)).toFixed(2)),
-      }))
+      const percent = parseFloat(margin);
 
-      for (const plan of updatedPlans) {
-        await api.updateSubvendorDataPlan(plan.id, { customPrice: plan.customPrice })
-      }
+      const res = await api.post(`/api/subvendors/${subvendorId}/apply-margin`, {
+        margin: percent,
+      });
 
-      setMsg(`✅ Applied ${percent}% margin to all plans successfully!`)
-      setMargin('')
-      await mutate()
+      // Update SWR cache instantly with new prices
+      const updatedPlans = plans.map((plan) => {
+        const newPriceWithMargin =
+          Number(plan.basePrice) * (1 + percent / 100);
+        return {
+          ...plan,
+          priceWithMargin: newPriceWithMargin,
+          profit: newPriceWithMargin - Number(plan.basePrice),
+          marginPercent: percent,
+        };
+      });
+      mutate(updatedPlans, false);
+
+      setMsg(`✅ Applied ${percent}% margin to all plans successfully!`);
+      setMargin("");
     } catch (err) {
-      console.error(err)
-      setMsg('❌ Failed to apply margin. Try again.')
+      console.error("Apply margin error:", err.response || err);
+      if (err.response?.data?.error) {
+        setMsg(`❌ Failed to apply margin: ${err.response.data.error}`);
+      } else {
+        setMsg("❌ Failed to apply margin. Try again.");
+      }
     } finally {
-      setApplyingMargin(false)
+      setApplyingMargin(false);
     }
-  }
+  };
 
   return (
     <ProtectedRoute>
@@ -113,14 +148,14 @@ export default function SubvendorDataPlan() {
         {msg && (
           <p
             className={`mb-4 text-sm ${
-              msg.includes('✅') ? 'text-green-600' : 'text-red-600'
+              msg.includes("✅") ? "text-green-600" : "text-red-600"
             }`}
           >
             {msg}
           </p>
         )}
 
-        {/* ✅ Global Margin Update Section */}
+        {/* Apply Margin Section */}
         <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-6">
           <h3 className="font-medium text-blue-700 mb-2">
             💹 Apply Percentage Margin to All Plans
@@ -132,26 +167,26 @@ export default function SubvendorDataPlan() {
               placeholder="Enter margin (10 means 10%)"
               value={margin}
               onChange={(e) => setMargin(e.target.value)}
-              className="border rounded p-2 w-42"
+              className="border rounded p-2 w-44"
             />
             <button
               onClick={handleApplyMargin}
               disabled={applyingMargin}
               className={`px-4 py-2 rounded text-white ${
                 applyingMargin
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {applyingMargin ? 'Applying...' : 'Apply Margin'}
+              {applyingMargin ? "Applying..." : "Apply Margin"}
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            This will update all custom prices = base price × (1 + margin / 100)
+            This updates all custom prices = base price × (1 + margin / 100)
           </p>
         </div>
 
-        {/* ✅ Data Plans Table */}
+        {/* Data Plans Table */}
         <div className="bg-white rounded shadow p-4 overflow-x-auto">
           {isLoading && <p>Loading data plans...</p>}
           {error && (
@@ -165,17 +200,15 @@ export default function SubvendorDataPlan() {
               <thead className="bg-gray-100">
                 <tr className="text-left border-b">
                   <th className="p-2">Name</th>
-                  <th className="p-2">ERS Plan ID</th>
-                  <th className="p-2">Data Service</th>
+                  <th className="p-2">Network</th>
                   <th className="p-2">Base Price (₦)</th>
                   <th className="p-2 bg-blue-50 text-blue-800 font-semibold">
                     Custom Price (₦)
                   </th>
                   <th className="p-2">Profit (₦)</th>
-                  <th className="p-2">Validity (Days)</th>
+                  <th className="p-2">Validity (days)</th>
                   <th className="p-2">Status</th>
-                  <th className="p-2">Created</th>
-                  <th className="p-2">Updated</th>
+                  <th className="p-2">Created At</th>
                   <th className="p-2 text-center">Action</th>
                 </tr>
               </thead>
@@ -184,56 +217,37 @@ export default function SubvendorDataPlan() {
                   plans.map((p) => (
                     <tr key={p.id} className="border-t hover:bg-gray-50">
                       <td className="p-2">{p.name}</td>
-                      <td className="p-2">{p.ersPlanId}</td>
-                      <td className="p-2">{p.dataServices || '-'}</td>
-                      <td className="p-2">{p.basePrice?.toFixed(2) || '0.00'}</td>
-
-                      <td
-                        className={`p-2 font-semibold text-blue-800 ${
-                          p.customPrice > p.basePrice
-                            ? 'bg-green-50'
-                            : 'bg-yellow-50'
-                        }`}
-                      >
-                        {p.customPrice?.toFixed(2) || '0.00'}
+                      <td className="p-2">{p.dataServices || "-"}</td>
+                      <td className="p-2">{Number(p.basePrice)?.toFixed(2)}</td>
+                      <td className="p-2 font-semibold text-blue-800">
+                        {Number(p.priceWithMargin)?.toFixed(2)}
                       </td>
-
-                      <td
-                        className={`p-2 font-semibold ${
-                          p.customPrice > p.basePrice
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                        }`}
-                      >
-                        {(p.customPrice - p.basePrice).toFixed(2)}
+                      <td className="p-2 font-semibold text-green-600">
+                        {Number(p.profit)?.toFixed(2)}
                       </td>
-                      <td className="p-2">{p.validityDays}</td>
+                      <td className="p-2">{p.validityDays ?? "-"}</td>
                       <td className="p-2">
                         <span
                           className={`px-2 py-1 rounded text-xs font-semibold ${
-                            p.status?.toLowerCase() === 'active'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-200 text-gray-700'
+                            p.status === "ACTIVE"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-200 text-gray-700"
                           }`}
                         >
-                          {p.status || 'N/A'}
+                          {p.status}
                         </span>
                       </td>
                       <td className="p-2">
                         {p.createdAt
-                          ? new Date(p.createdAt).toLocaleDateString()
-                          : '-'}
-                      </td>
-                      <td className="p-2">
-                        {p.updatedAt
-                          ? new Date(p.updatedAt).toLocaleDateString()
-                          : '-'}
+                          ? new Date(p.createdAt).toLocaleString()
+                          : "-"}
                       </td>
                       <td className="p-2 text-center">
                         <button
                           onClick={() => {
-                            setSelectedPlan(p)
-                            fetchCoVendorAverage(p.id)
+                            setSelectedPlan(p);
+                            setProfitPreview(Number(p.profit));
+                            fetchCoVendorAverage(p.id);
                           }}
                           className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
                         >
@@ -244,7 +258,7 @@ export default function SubvendorDataPlan() {
                   ))
                 ) : (
                   <tr>
-                    <td className="p-4 text-center text-gray-500" colSpan={11}>
+                    <td className="p-4 text-center text-gray-500" colSpan={9}>
                       No data plans available
                     </td>
                   </tr>
@@ -254,23 +268,24 @@ export default function SubvendorDataPlan() {
           )}
         </div>
 
-        {/* ✅ Update Modal */}
+        {/* Update Modal */}
         {selectedPlan && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
             <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md relative">
               <button
                 onClick={() => {
-                  setSelectedPlan(null)
-                  setWarning('')
-                  setAvgPrice(null)
+                  setSelectedPlan(null);
+                  setWarning("");
+                  setAvgPrice(null);
                 }}
                 className="absolute top-2 right-2 text-gray-400 hover:text-gray-700"
               >
                 ✕
               </button>
 
-              <h3 className="text-lg font-semibold mb-3">Update Custom Price</h3>
-
+              <h3 className="text-lg font-semibold mb-3">
+                Update Custom Price
+              </h3>
               <p className="text-sm mb-2 text-gray-600">
                 Plan: <strong>{selectedPlan.name}</strong>
               </p>
@@ -287,30 +302,32 @@ export default function SubvendorDataPlan() {
                   placeholder="Enter new price"
                   value={newPrice}
                   onChange={(e) => {
-                    const val = parseFloat(e.target.value)
-                    setNewPrice(e.target.value)
-                    checkPriceDifference(val)
+                    const val = parseFloat(e.target.value);
+                    setNewPrice(e.target.value);
+                    checkPriceDifference(val);
+                    setProfitPreview(val - Number(selectedPlan.basePrice));
                   }}
                   className="w-full border rounded p-2"
                   required
                 />
-
                 {warning && (
                   <p className="text-xs text-yellow-600 bg-yellow-50 border border-yellow-300 rounded p-2">
                     {warning}
                   </p>
                 )}
-
+                <p className="text-xs text-gray-500">
+                  Profit Preview: ₦{profitPreview.toFixed(2)}
+                </p>
                 <button
                   type="submit"
                   disabled={submitting}
                   className={`w-full py-2 rounded text-white transition ${
                     submitting
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-700"
                   }`}
                 >
-                  {submitting ? 'Updating...' : 'Save Price'}
+                  {submitting ? "Updating..." : "Save Price"}
                 </button>
               </form>
             </div>
@@ -318,5 +335,5 @@ export default function SubvendorDataPlan() {
         )}
       </div>
     </ProtectedRoute>
-  )
+  );
 }

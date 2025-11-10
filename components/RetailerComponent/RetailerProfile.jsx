@@ -1,175 +1,114 @@
-"use client"
+'use client'
 
-import { useState, useEffect } from "react"
-
-// ✅ Lightweight fallback components (replace later if you install shadcn/ui)
-const Button = ({ children, variant, className, ...props }) => (
-  <button
-    {...props}
-    className={`px-4 py-2 rounded text-white font-medium ${
-      variant === "secondary"
-        ? "bg-gray-400 hover:bg-gray-500"
-        : "bg-blue-600 hover:bg-blue-700"
-    } ${className || ""}`}
-  >
-    {children}
-  </button>
-)
-
-const Input = (props) => (
-  <input
-    {...props}
-    className={`border rounded px-3 py-2 w-full focus:ring-2 focus:ring-blue-500 focus:outline-none ${
-      props.className || ""
-    }`}
-  />
-)
-
-const Label = ({ children }) => (
-  <label className="block text-sm font-semibold text-gray-700 mb-1">
-    {children}
-  </label>
-)
-
-const Card = ({ children, className }) => (
-  <div className={`bg-white shadow-md rounded-xl p-6 ${className || ""}`}>
-    {children}
-  </div>
-)
-
-const CardHeader = ({ children }) => <div className="mb-4">{children}</div>
-const CardTitle = ({ children }) => <h2 className="text-xl font-bold">{children}</h2>
-const CardContent = ({ children }) => <div>{children}</div>
+import { useEffect, useState } from 'react'
+import useSWR from 'swr'
+import api from '@/lib/api'
+import toast, { Toaster } from 'react-hot-toast'
 
 export default function RetailerProfile() {
-  const [retailer, setRetailer] = useState(null)
-  const [editing, setEditing] = useState(false)
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-  })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const [retailerId, setRetailerId] = useState(null)
 
+  // ✅ Load retailerId from localStorage
   useEffect(() => {
-    const token = localStorage.getItem("glovendor_token")
-    if (!token) {
-      setError("Please log in first.")
-      setLoading(false)
+    const id = typeof window !== 'undefined' ? localStorage.getItem('retailerId') : null
+    if (!id) {
+      toast.error('⚠️ Retailer not logged in.')
+      setTimeout(() => (window.location.href = '/login'), 2000)
       return
     }
-
-    fetch("http://localhost:8080/api/retailers/my", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Server error ${res.status}`)
-        const data = await res.json()
-        if (Array.isArray(data) && data.length > 0) {
-          const retailerData = data[0]
-          setRetailer(retailerData)
-          setFormData({
-            name: retailerData.name || "",
-            email: retailerData.email || "",
-            phone: retailerData.phone || "",
-          })
-        } else {
-          setError("No retailer profile found.")
-        }
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
+    setRetailerId(id)
   }, [])
 
-  const handleChange = (e) =>
-    setFormData({ ...formData, [e.target.name]: e.target.value })
+  // ✅ Fetcher using getRetailerById
+  const fetcher = async () => {
+    if (!retailerId) throw new Error('Retailer ID missing.')
+    const data = await api.getRetailerById(retailerId)
+    return data
+  }
 
-  const handleSave = async () => {
-    const token = localStorage.getItem("glovendor_token")
-    if (!retailer) return
-
-    try {
-      const res = await fetch(
-        `http://localhost:8080/api/retailers/${retailer.id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(formData),
-        }
-      )
-      if (!res.ok) throw new Error(`Failed to update profile (${res.status})`)
-      const updated = await res.json()
-      setRetailer(updated)
-      setEditing(false)
-    } catch (err) {
-      setError(err.message)
+  // ✅ SWR fetch with auto-refresh every 10s for real-time balance
+  const { data, error, isLoading, mutate } = useSWR(
+    retailerId ? ['retailer-profile', retailerId] : null,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      refreshInterval: 10000, // 🔁 auto-refresh every 10s
+      shouldRetryOnError: true,
     }
-  }
+  )
 
-  if (loading) {
+  // ✅ Handle loading and errors
+  if (!retailerId)
     return (
-      <Card>
-        <CardContent>Loading profile...</CardContent>
-      </Card>
+      <div className="flex items-center justify-center min-h-screen text-gray-600">
+        Loading session...
+      </div>
     )
-  }
+
+  if (isLoading)
+    return (
+      <div className="flex items-center justify-center min-h-screen text-gray-600">
+        Fetching your profile...
+      </div>
+    )
 
   if (error) {
+    console.error('❌ Failed to load retailer profile:', error)
+    toast.error('❌ Failed to load retailer profile.')
     return (
-      <Card>
-        <CardContent className="text-red-600 font-medium">⚠️ {error}</CardContent>
-      </Card>
+      <div className="flex flex-col items-center justify-center min-h-screen text-red-500">
+        <p>Something went wrong while loading your profile.</p>
+      </div>
     )
   }
 
+  const retailer = data?.data || data || {}
+
   return (
-    <Card className="max-w-2xl mx-auto mt-8">
-      <CardHeader>
-        <CardTitle>Retailer Profile</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <Label>Name</Label>
-          <Input
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            disabled={!editing}
+    <div className="min-h-screen bg-gray-50 py-10 px-4">
+      <Toaster position="top-center" />
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-lg p-8">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-semibold text-gray-800">👤 Retailer Profile</h1>
+          <button
+            onClick={() => mutate()}
+            className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <ProfileRow label="Full Name" value={retailer.name} />
+          <ProfileRow label="Email" value={retailer.email} />
+          <ProfileRow label="Phone" value={retailer.phone} />
+          <ProfileRow label="Business Name" value={retailer.businessName} />
+          <ProfileRow
+            label="Wallet Balance"
+            value={`₦${Number(retailer.walletBalance || 0).toFixed(2)}`}
+          />
+          <ProfileRow
+            label="Registered"
+            value={retailer.createdAt ? new Date(retailer.createdAt).toLocaleString() : '—'}
           />
         </div>
 
-        <div>
-          <Label>Email</Label>
-          <Input name="email" value={formData.email} disabled />
+        <div className="mt-8 text-sm text-gray-400 text-center">
+          Auto-refreshes every 10 seconds 🔁
         </div>
+      </div>
+    </div>
+  )
+}
 
-        <div>
-          <Label>Phone</Label>
-          <Input
-            name="phone"
-            value={formData.phone}
-            onChange={handleChange}
-            disabled={!editing}
-          />
-        </div>
-
-        <div className="flex gap-2 pt-4">
-          {editing ? (
-            <>
-              <Button onClick={handleSave}>Save</Button>
-              <Button variant="secondary" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button onClick={() => setEditing(true)}>Edit Profile</Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+/* ============================================================
+ * Small Component for Displaying Rows
+ * ============================================================ */
+function ProfileRow({ label, value }) {
+  return (
+    <div className="flex justify-between items-center border-b border-gray-100 py-2">
+      <span className="text-gray-500 font-medium">{label}</span>
+      <span className="text-gray-800">{value || '—'}</span>
+    </div>
   )
 }

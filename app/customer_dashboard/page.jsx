@@ -1,214 +1,265 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import useSWR from 'swr'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/components/AuthProvider'
+import ProtectedRoute from '@/components/ProtectedRoute'
 import api from '@/lib/api'
-
-// Icons
+import useSWR from 'swr'
+import PaymentForm from '@/components/PaymentForm'
 import {
-  Home,
-  CreditCard,
-  Wallet,
-  Layers,
-  Users,
-  User,
-  LogOut,
-  ChevronDown,
   Menu,
+  X,
+  Wallet,
+  CreditCard,
+  LogOut,
+  Home,
+  List,
+  PlusCircle
 } from 'lucide-react'
 
-import PaymentForm from '@/components/PaymentForm'
-import WalletDashboard from '@/components/WalletDashboard'
-import CustomerProfile from '@/components/CustomerProfile' // ✅ NEW IMPORT
-
 export default function CustomerDashboard() {
-  const [activeTab, setActiveTab] = useState('Dashboard')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [walletBalance, setWalletBalance] = useState(0)
-  const [transactions, setTransactions] = useState([])
-  const dropdownRef = useRef(null)
+  const { user, logout } = useAuth()
   const router = useRouter()
-  const { logout, user } = useAuth()
 
-  const userEmail = user?.email || ''
-  const userRole = user?.role || 'CUSTOMER'
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
 
-  // ✅ Fetch wallet balance & transactions
-  const { data: fetchedTxns, mutate: refreshTxns } = useSWR(
-    userEmail ? ['wallet_txns', userEmail] : null,
-    async () => {
-      const txns = await api.listWalletTransactions(userEmail)
-      return Array.isArray(txns)
-        ? txns.sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )
-        : []
-    },
+  const email = user?.email
+  const role = user?.role || 'CUSTOMER'
+
+  // 🔁 Fetch wallet balance
+  const { data: walletBalance, mutate: mutateWallet } = useSWR(
+    email ? ['/api/wallet_transactions/balance', email, role] : null,
+    () => api.getWalletBalance(email, role),
     { refreshInterval: 10000 }
   )
 
-  const { data: fetchedBalance } = useSWR(
-    userEmail ? ['wallet_balance', userEmail] : null,
-    async () => {
-      const res = await api.getWalletBalance(userEmail, userRole)
-      return res?.balance || 0
-    },
-    { refreshInterval: 10000 }
+  // 🔁 Fetch wallet transactions
+  const { data: transactions, mutate: mutateTxns } = useSWR(
+    email ? ['/api/wallet_transactions/user', email, role] : null,
+    () => api.getUserTransactions(email, role),
+    { refreshInterval: 15000 }
   )
 
+  // 🧠 Listen for wallet updates
   useEffect(() => {
-    if (fetchedTxns) setTransactions(fetchedTxns)
-    if (fetchedBalance !== undefined) setWalletBalance(fetchedBalance)
-  }, [fetchedTxns, fetchedBalance])
-
-  // ✅ Handle logout
-  const handleLogout = () => {
-    logout()
-    router.push('/')
-  }
-
-  // ✅ Render content by tab
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'WalletBalance':
-        return (
-          <WalletDashboard
-            walletBalance={walletBalance}
-            transactions={transactions}
-          />
-        )
-      case 'Fund Wallet':
-        return (
-          <PaymentForm
-            onWalletUpdate={() => {
-              refreshTxns()
-            }}
-          />
-        )
-      case 'Profile':
-        return <CustomerProfile /> // ✅ Replaced with live customer profile
-      default:
-        return (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-semibold mb-4">Customer Dashboard</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Wallet Balance */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Wallet className="text-orange-500 mb-2" />
-                <div className="text-3xl font-bold">
-                  ₦{Number(walletBalance || 0).toFixed(2)}
-                </div>
-                <div className="text-gray-500 mt-2 text-center">
-                  Wallet Balance
-                </div>
-              </div>
-
-              {/* Transactions */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <CreditCard className="text-green-600 mb-2" />
-                <div className="text-3xl font-bold">{transactions?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Transactions</div>
-              </div>
-
-              {/* Example Placeholder: Offers */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Users className="text-blue-600 mb-2" />
-                <div className="text-3xl font-bold">5</div>
-                <div className="text-gray-500 mt-2 text-center">Active Offers</div>
-              </div>
-
-              {/* Example Placeholder: Subscriptions */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Layers className="text-indigo-500 mb-2" />
-                <div className="text-3xl font-bold">3</div>
-                <div className="text-gray-500 mt-2 text-center">
-                  Subscriptions
-                </div>
-              </div>
-            </div>
-          </div>
-        )
+    const handleWalletUpdated = () => {
+      mutateWallet()
+      mutateTxns()
     }
+    window.addEventListener('walletUpdated', handleWalletUpdated)
+    return () => window.removeEventListener('walletUpdated', handleWalletUpdated)
+  }, [mutateWallet, mutateTxns])
+
+  // Handle outside click for dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // 💰 Format currency nicely
+  const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return '₦0.00'
+    const num = parseFloat(amount)
+    if (num >= 1_000_000_000) return `₦${(num / 1_000_000_000).toFixed(1)}B`
+    if (num >= 1_000_000) return `₦${(num / 1_000_000).toFixed(1)}M`
+    if (num >= 1_000) return `₦${(num / 1_000).toFixed(1)}K`
+    return `₦${num.toFixed(2)}`
   }
 
   const tabs = [
-    { name: 'Dashboard', icon: <Home className="w-4 h-4 mr-2" /> },
-    { name: 'Fund Wallet', icon: <CreditCard className="w-4 h-4 mr-2" /> },
-    { name: 'WalletBalance', icon: <Wallet className="w-4 h-4 mr-2" /> },
-    { name: 'Profile', icon: <User className="w-4 h-4 mr-2" /> },
+    { key: 'overview', label: 'Overview', icon: <Home className="w-4 h-4" /> },
+    { key: 'walletrecord', label: '', icon: <List className="w-4 h-4" /> },
+    { key: 'fundwallet', label: 'FundWallet', icon: <Wallet className="w-4 h-4" /> },
   ]
 
   return (
     <ProtectedRoute>
-      <div className="flex min-h-screen">
+      <div className="flex h-screen bg-gray-50 overflow-hidden">
         {/* Sidebar */}
-        <aside className="hidden md:flex w-64 bg-white border-r p-4 flex-col space-y-2">
-          {tabs.map((tab) => (
+        <aside
+          className={`fixed md:relative z-40 inset-y-0 left-0 w-64 bg-white border-r flex flex-col space-y-1 p-4 transform transition-transform duration-300 ease-in-out ${
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-lg font-bold text-gray-800">Customer</h1>
             <button
-              key={tab.name}
-              onClick={() => setActiveTab(tab.name)}
-              className={`flex items-center w-full text-left px-3 py-2 rounded hover:bg-gray-100 ${
-                activeTab === tab.name ? 'bg-gray-200 font-medium' : ''
-              }`}
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden p-1 rounded hover:bg-gray-100"
             >
-              {tab.icon}
-              {tab.name}
+              <X className="w-5 h-5" />
             </button>
-          ))}
+          </div>
 
-          {/* Dropdown */}
-          <div className="relative mt-auto" ref={dropdownRef}>
+          <nav className="space-y-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  setActiveTab(tab.key)
+                  setSidebarOpen(false)
+                }}
+                className={`flex items-center w-full px-3 py-2 text-sm font-medium rounded-md transition ${
+                  activeTab === tab.key
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span className="mr-2 text-gray-600">{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="mt-auto">
             <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center justify-between w-full px-3 py-2 mt-4 bg-gray-100 rounded hover:bg-gray-200"
+              onClick={() => {
+                logout()
+                router.push('/')
+              }}
+              className="flex items-center w-full text-left px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 rounded-md"
             >
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-600" />
-                <span>{user?.fullName || 'Customer'}</span>
-              </div>
-              <ChevronDown className="w-4 h-4 text-gray-600" />
+              <LogOut className="w-4 h-4 mr-2" /> Logout
             </button>
-
-            {dropdownOpen && (
-              <div className="absolute left-0 mt-2 w-full bg-white border rounded shadow-md z-10">
-                <button
-                  onClick={() => {
-                    setDropdownOpen(false)
-                    setActiveTab('Profile')
-                  }}
-                  className="flex items-center w-full px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  <User className="w-4 h-4 mr-2 text-gray-500" /> View Profile
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                >
-                  <LogOut className="w-4 h-4 mr-2" /> Logout
-                </button>
-              </div>
-            )}
           </div>
         </aside>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col">
-          <div className="md:hidden flex items-center justify-between bg-white p-4 border-b">
-            <h1 className="text-lg font-semibold">Customer Dashboard</h1>
+        {/* Main content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Topbar */}
+          <header className="bg-white shadow-sm px-4 py-3 flex justify-between items-center">
             <button
-              onClick={() => setSidebarOpen(true)}
-              className="text-gray-600 hover:text-gray-800"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="md:hidden p-2 hover:bg-gray-100 rounded"
             >
-              <Menu className="w-6 h-6" />
+              <Menu className="w-5 h-5" />
             </button>
-          </div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+            </h2>
 
-          <main className="flex-grow p-6 bg-gray-100 overflow-auto">
-            {renderContent()}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="text-sm font-medium text-gray-700 hover:text-gray-900"
+              >
+                {user?.username || 'Customer'}
+              </button>
+              {dropdownOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white shadow-lg rounded-md border z-50">
+                  <button
+                    onClick={() => router.push('/customer/profile')}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
+                  >
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      logout()
+                      router.push('/')
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-100"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </header>
+
+          {/* Dashboard Body */}
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            {activeTab === 'overview' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="bg-white p-4 rounded-lg shadow flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Wallet Balance</p>
+                    <p className="text-xl font-bold text-gray-800">
+                      {walletBalance ? formatCurrency(walletBalance.balance) : '₦0.00'}
+                    </p>
+                  </div>
+                  <Wallet className="w-6 h-6 text-indigo-600" />
+                </div>
+
+                <div className="bg-white p-4 rounded-lg shadow flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Total Transactions</p>
+                    <p className="text-xl font-bold text-gray-800">
+                      {transactions ? transactions.length : 0}
+                    </p>
+                  </div>
+                  <CreditCard className="w-6 h-6 text-green-600" />
+                </div>
+
+                <div className="bg-white p-4 rounded-lg shadow flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Fund Wallet</p>
+                    <button
+                      onClick={() => setActiveTab('wallet')}
+                      className="flex items-center text-indigo-600 font-medium hover:underline"
+                    >
+                      <PlusCircle className="w-4 h-4 mr-1" /> Add Funds
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'transactions' && (
+              <div className="bg-white rounded-lg shadow p-4">
+                <h3 className="text-lg font-semibold mb-3">Recent Transactions</h3>
+                {transactions && transactions.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-gray-600">
+                          <th className="text-left py-2">Amount</th>
+                          <th className="text-left py-2">Type</th>
+                          <th className="text-left py-2">Reference</th>
+                          <th className="text-left py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {transactions.map((txn) => (
+                          <tr key={txn.id} className="border-b hover:bg-gray-50">
+                            <td className="py-2">{formatCurrency(txn.amount)}</td>
+                            <td className="py-2 capitalize">{txn.type}</td>
+                            <td className="py-2">{txn.reference || '-'}</td>
+                            <td className="py-2">{new Date(txn.createdAt).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No transactions found.</p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'wallet' && (
+              <div className="bg-white rounded-lg shadow p-4">
+                <h3 className="text-lg font-semibold mb-3">Fund Wallet</h3>
+                <PaymentForm
+                  email={email}
+                  role={role}
+                  onSuccess={() => {
+                    mutateWallet()
+                    mutateTxns()
+                    window.dispatchEvent(new Event('walletUpdated'))
+                  }}
+                />
+              </div>
+            )}
           </main>
         </div>
       </div>

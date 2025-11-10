@@ -1,9 +1,14 @@
-'use client'
-import { useState } from 'react'
-import useSWR from 'swr'
-import api from '@/lib/api'
-import ProtectedRoute from '@/components/ProtectedRoute'
+'use client';
+import { useState } from 'react';
+import useSWR from 'swr';
+import api from '@/lib/api';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
+/* ============================================================
+ * 📘 ManageAggregators Component
+ * - Includes create, update, delete, list
+ * - Now includes a skeleton loader for data fetching
+ * ============================================================ */
 export default function ManageAggregators() {
   const {
     data: aggs,
@@ -11,106 +16,134 @@ export default function ManageAggregators() {
     isLoading,
     mutate,
   } = useSWR('aggs', api.listAggregators, {
-    refreshInterval: 8000, // 🔁 auto-refresh every 8s
-    revalidateOnFocus: true, // 🔁 refetch when window is focused
-    revalidateOnReconnect: true, // 🔁 refetch after reconnect
-  })
+    refreshInterval: 8000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+  });
 
-  const [showModal, setShowModal] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  const [selectedAgg, setSelectedAgg] = useState(null)
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' })
-  const [submitting, setSubmitting] = useState(false)
-  const [toast, setToast] = useState(null)
-  const [filterType, setFilterType] = useState('email')
-  const [filterValue, setFilterValue] = useState('')
+  const [showModal, setShowModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedAgg, setSelectedAgg] = useState(null);
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [filterType, setFilterType] = useState('email');
+  const [filterValue, setFilterValue] = useState('');
 
-  /** ✅ Toast Handler */
+  /* ============================================================
+   * Toast Utility
+   * ============================================================ */
   const showToast = (type, message) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 4000)
-  }
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 4000);
+  };
 
-  /** ✅ Form Input Handler */
+  /* ============================================================
+   * Form Input Handler
+   * ============================================================ */
   const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData({ ...formData, [name]: value })
-  }
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+  };
 
-  /** ✅ Filtered Aggregators */
+  /* ============================================================
+   * Filtered Aggregators
+   * ============================================================ */
   const filteredAggregators = aggs?.filter((a) => {
-    if (!filterValue) return true
-    const fieldValue = (a[filterType] || '').toLowerCase()
-    return fieldValue.includes(filterValue.toLowerCase())
-  })
+    if (!filterValue) return true;
+    const fieldValue = (a[filterType] || '').toLowerCase();
+    return fieldValue.includes(filterValue.toLowerCase());
+  });
 
-  /** ✅ Create or Update Aggregator */
+  /* ============================================================
+   * Create or Update Aggregator
+   * ============================================================ */
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setSubmitting(true)
+    e.preventDefault();
+    setSubmitting(true);
+
     try {
       if (isEditing && selectedAgg) {
-        const updated = await api.updateAggregator(selectedAgg.id, {
+        await api.updateAggregator(selectedAgg.id, {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
-        })
-        mutate() // 🔁 revalidate server data
-        showToast('success', 'Aggregator updated successfully')
+        });
+        showToast('success', 'Aggregator updated successfully');
       } else {
         await api.createAggregator({
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
           password: formData.password,
-        })
-        mutate() // 🔁 revalidate after creation
-        showToast('success', 'Aggregator created successfully')
+        });
+        showToast('success', 'Aggregator created successfully');
       }
 
-      setShowModal(false)
-      resetForm()
+      mutate(); // ✅ refresh SWR cache
+      setShowModal(false);
+      resetForm();
     } catch (err) {
-      console.error(err)
-      showToast('error', err.message || 'Action failed')
+      console.error('Aggregator action failed:', err);
+      showToast('error', err.response?.data?.message || 'Action failed');
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
-  /** ✅ Delete Aggregator */
-  const handleDelete = async (aggId) => {
-    if (!confirm('Are you sure you want to delete this aggregator?')) return
+  /* ============================================================
+   * Delete Aggregator
+   * ============================================================ */
+  const handleDelete = async (id) => {
+    if (!confirm('Are you sure you want to delete this aggregator?')) return;
     try {
-      await api.deleteAggregator(aggId)
-      mutate() // 🔁 revalidate after delete
-      showToast('success', 'Aggregator deleted successfully')
+      await api.deleteAggregator(id);
+      mutate();
+      showToast('success', 'Aggregator deleted successfully');
     } catch (err) {
-      console.error(err)
-      showToast('error', 'Failed to delete aggregator')
+      console.error(err);
+      showToast('error', 'Failed to delete aggregator');
     }
-  }
+  };
 
-  /** ✅ Reset Form */
+  /* ============================================================
+   * Helpers
+   * ============================================================ */
   const resetForm = () => {
-    setFormData({ name: '', email: '', phone: '', password: '' })
-    setIsEditing(false)
-    setSelectedAgg(null)
-  }
+    setFormData({ name: '', email: '', phone: '', password: '' });
+    setIsEditing(false);
+    setSelectedAgg(null);
+  };
 
-  /** ✅ Open Edit Modal */
   const handleEdit = (agg) => {
-    setSelectedAgg(agg)
+    setSelectedAgg(agg);
     setFormData({
       name: agg.name || '',
       email: agg.email || '',
       phone: agg.phone || '',
       password: '',
-    })
-    setIsEditing(true)
-    setShowModal(true)
-  }
+    });
+    setIsEditing(true);
+    setShowModal(true);
+  };
 
+  /* ============================================================
+   * Skeleton Loader
+   * ============================================================ */
+  const SkeletonRow = () => (
+    <tr className="animate-pulse border-b">
+      <td className="py-2 px-3"><div className="h-4 bg-gray-200 rounded w-6"></div></td>
+      <td className="py-2 px-3"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+      <td className="py-2 px-3"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
+      <td className="py-2 px-3"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+      <td className="py-2 px-3"><div className="h-4 bg-gray-200 rounded w-28"></div></td>
+      <td className="py-2 px-3 text-center"><div className="h-4 bg-gray-200 rounded w-20 mx-auto"></div></td>
+    </tr>
+  );
+
+  /* ============================================================
+   * UI
+   * ============================================================ */
   return (
     <ProtectedRoute>
       <div className="p-6">
@@ -119,8 +152,8 @@ export default function ManageAggregators() {
           <h2 className="text-2xl font-semibold">Aggregators</h2>
           <button
             onClick={() => {
-              resetForm()
-              setShowModal(true)
+              resetForm();
+              setShowModal(true);
             }}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
@@ -158,13 +191,29 @@ export default function ManageAggregators() {
           />
         </div>
 
-        {/* Loading / Error */}
-        {isLoading && <p className="text-gray-500 mb-2">Loading aggregators...</p>}
-        {error && <p className="text-red-500 mb-2">Failed to load aggregators</p>}
-
         {/* Table */}
         <div className="bg-white rounded shadow p-4 overflow-x-auto">
-          {filteredAggregators && filteredAggregators.length > 0 ? (
+          {isLoading ? (
+            <table className="min-w-full text-sm border-collapse">
+              <thead className="border-b font-medium bg-gray-50">
+                <tr>
+                  <th className="py-2 px-3">ID</th>
+                  <th className="py-2 px-3">Name</th>
+                  <th className="py-2 px-3">Email</th>
+                  <th className="py-2 px-3">Phone</th>
+                  <th className="py-2 px-3">Created At</th>
+                  <th className="py-2 px-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <SkeletonRow key={i} />
+                ))}
+              </tbody>
+            </table>
+          ) : error ? (
+            <p className="text-red-500">Failed to load aggregators.</p>
+          ) : filteredAggregators?.length > 0 ? (
             <table className="min-w-full text-sm text-left border-collapse">
               <thead className="border-b font-medium bg-gray-50">
                 <tr>
@@ -205,7 +254,7 @@ export default function ManageAggregators() {
               </tbody>
             </table>
           ) : (
-            !isLoading && <p className="text-gray-500">No aggregators found.</p>
+            <p className="text-gray-500">No aggregators found.</p>
           )}
         </div>
 
@@ -309,5 +358,5 @@ export default function ManageAggregators() {
         }
       `}</style>
     </ProtectedRoute>
-  )
+  );
 }

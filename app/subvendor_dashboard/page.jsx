@@ -8,7 +8,7 @@ import { useAuth } from '@/components/AuthProvider'
 import api, { getToken } from '@/lib/api'
 
 // Icons
-import { Home, CreditCard, Wallet, Layers, Users, User, LogOut, ChevronDown, Menu } from 'lucide-react'
+import { Home, CreditCard, Wallet, Layers, Users, User, LogOut, ChevronDown, Menu, X } from 'lucide-react'
 
 // Components
 import WalletDashboard from '@/components/WalletDashboard'
@@ -16,6 +16,14 @@ import PaymentForm from '@/components/PaymentForm'
 import SubvendorDataPlan from '@/components/SubvendorComponents/SubvendorDataPlan'
 import Profile from '@/components/SubvendorComponents/Profile'
 import ManageRetailer from '@/components/SubvendorComponents/ManageRetailer'
+
+// Helper: Format large numbers
+const formatCurrency = (amount) => {
+  if (amount >= 1_000_000_000) return `₦${(amount / 1_000_000_000).toFixed(2)}B`
+  if (amount >= 1_000_000) return `₦${(amount / 1_000_000).toFixed(2)}M`
+  if (amount >= 1_000) return `₦${(amount / 1_000).toFixed(2)}K`
+  return `₦${amount.toFixed(2)}`
+}
 
 export default function SubvendorDashboard() {
   const [activeTab, setActiveTab] = useState('Dashboard')
@@ -68,17 +76,18 @@ export default function SubvendorDashboard() {
     subvendorId ? ['subvendor_retailers', subvendorId] : null,
     () => api.listRetailers(subvendorId)
   )
-
   const { data: dataPlans, mutate: mutatePlans } = useSWR(
     subvendorId ? ['subvendor_data_plans', subvendorId] : null,
     () => api.listSubvendorDataPlans(subvendorId)
   )
 
+  // Logout handler
   const handleLogout = () => {
     logout()
     router.push('/')
   }
 
+  // Purchase data plan
   const handleBuyPlan = async (plan) => {
     if (!plan || typeof plan.customPrice !== 'number') {
       alert('❌ Invalid plan')
@@ -132,6 +141,7 @@ export default function SubvendorDashboard() {
     }
   }
 
+  // Render content
   const renderContent = () => {
     switch (activeTab) {
       case 'WalletBalance':
@@ -147,34 +157,39 @@ export default function SubvendorDashboard() {
       default:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-semibold mb-4">Subvendor Dashboard</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <h2 className="text-2xl font-semibold mb-2">Subvendor Dashboard</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               {/* Wallet */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Wallet className="text-orange-500 mb-2" />
-                <div className="text-3xl font-bold">₦{Number(walletBalance || 0).toFixed(2)}</div>
-                <div className="text-gray-500 mt-2 text-center">Wallet Balance</div>
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Wallet className="text-orange-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div
+                  className="text-2xl sm:text-3xl md:text-4xl font-bold break-words"
+                  title={`₦${Number(walletBalance).toLocaleString()}`}
+                >
+                  {formatCurrency(walletBalance)}
+                </div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Wallet Balance</div>
               </div>
 
               {/* Transactions */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <CreditCard className="text-green-600 mb-2" />
-                <div className="text-3xl font-bold">{transactions?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Transactions</div>
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <CreditCard className="text-green-600 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{transactions?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Transactions</div>
               </div>
 
               {/* Retailers */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Users className="text-blue-600 mb-2" />
-                <div className="text-3xl font-bold">{retailers?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Retailers</div>
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Users className="text-blue-600 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{retailers?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Retailers</div>
               </div>
 
               {/* Data Plans */}
-              <div className="bg-white rounded shadow p-4 flex flex-col items-center">
-                <Layers className="text-indigo-500 mb-2" />
-                <div className="text-3xl font-bold">{dataPlans?.length || 0}</div>
-                <div className="text-gray-500 mt-2 text-center">Data Plans</div>
+              <div className="bg-white rounded shadow p-4 flex flex-col items-center text-center">
+                <Layers className="text-indigo-500 mb-2 w-6 h-6 sm:w-8 sm:h-8" />
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold">{dataPlans?.length || 0}</div>
+                <div className="text-gray-500 mt-2 text-sm sm:text-base">Data Plans</div>
               </div>
             </div>
           </div>
@@ -186,7 +201,7 @@ export default function SubvendorDashboard() {
     { name: 'Dashboard', icon: <Home className="w-4 h-4 mr-2" /> },
     { name: 'Fund Wallet', icon: <CreditCard className="w-4 h-4 mr-2" /> },
     { name: 'Retailers', icon: <Users className="w-4 h-4 mr-2" /> },
-    { name: 'WalletBalance', icon: <Wallet className="w-4 h-4 mr-2" /> },
+    { name: 'WalletRecord', icon: <Wallet className="w-4 h-4 mr-2" /> },
     { name: 'DataPlans', icon: <Layers className="w-4 h-4 mr-2" /> },
     { name: 'Profile', icon: <User className="w-4 h-4 mr-2" /> },
   ]
@@ -195,11 +210,26 @@ export default function SubvendorDashboard() {
     <ProtectedRoute>
       <div className="flex min-h-screen">
         {/* Sidebar */}
-        <aside className="hidden md:flex w-64 bg-white border-r p-4 flex-col space-y-2">
+        <aside
+          className={`fixed md:relative z-50 inset-y-0 left-0 w-64 bg-white border-r p-3 flex flex-col space-y-2 transform transition-transform duration-300 ${
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
+        >
+          {/* Mobile header */}
+          <div className="flex justify-between items-center md:hidden mb-4">
+            <h2 className="text-lg font-semibold">Menu</h2>
+            <button onClick={() => setSidebarOpen(false)}>
+              <X className="w-6 h-6 text-gray-600" />
+            </button>
+          </div>
+
           {tabs.map((tab) => (
             <button
               key={tab.name}
-              onClick={() => setActiveTab(tab.name)}
+              onClick={() => {
+                setActiveTab(tab.name)
+                setSidebarOpen(false)
+              }}
               className={`flex items-center w-full text-left px-3 py-2 rounded hover:bg-gray-100 ${
                 activeTab === tab.name ? 'bg-gray-200 font-medium' : ''
               }`}
@@ -244,19 +274,17 @@ export default function SubvendorDashboard() {
           </div>
         </aside>
 
-        {/* Main Content */}
+        {/* Main content */}
         <div className="flex-1 flex flex-col">
+          {/* Mobile header */}
           <div className="md:hidden flex items-center justify-between bg-white p-4 border-b">
             <h1 className="text-lg font-semibold">Subvendor Dashboard</h1>
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="text-gray-600 hover:text-gray-800"
-            >
+            <button onClick={() => setSidebarOpen(true)} className="text-gray-600 hover:text-gray-800">
               <Menu className="w-6 h-6" />
             </button>
           </div>
 
-          <main className="flex-grow p-6 bg-gray-100 overflow-auto">{renderContent()}</main>
+          <main className="flex-grow p-4 md:p-6 bg-gray-100 overflow-auto">{renderContent()}</main>
         </div>
       </div>
     </ProtectedRoute>

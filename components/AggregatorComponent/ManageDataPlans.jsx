@@ -5,16 +5,19 @@ import { useState } from 'react'
 import api, { getToken } from '@/lib/api'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { RefreshCw } from 'lucide-react'
+import { useAuth } from '@/components/AuthProvider'
 
 export default function ManageDataPlans() {
+  const { user } = useAuth()
   const [file, setFile] = useState(null)
   const [msg, setMsg] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
   const [filterStatus, setFilterStatus] = useState('ALL')
   const [filterService, setFilterService] = useState('ALL')
   const [sortBy, setSortBy] = useState('createdAt')
 
-  // ✅ SWR Data Fetcher
+  // ---------------- SWR Fetcher ----------------
   const fetcher = async () => {
     const token = getToken()
     if (!token) throw new Error('Not authenticated')
@@ -23,48 +26,53 @@ export default function ManageDataPlans() {
 
   const { data: plans, error, isLoading, mutate } = useSWR('data_plans', fetcher)
 
-  // ✅ File Upload Handler
-  async function upload(e) {
+  // ---------------- Upload Handler ----------------
+  async function handleUpload(e) {
     e.preventDefault()
     setMsg('')
-    if (!file) return setMsg('Please choose a file')
-    if (!getToken()) return setMsg('You must be logged in to upload')
-
-    const fd = new FormData()
-    fd.append('file', file)
+    if (!file) return setMsg('⚠️ Please choose a file first.')
+    if (!getToken()) return setMsg('You must be logged in to upload.')
 
     setUploading(true)
+    setProgress(0)
+
     try {
-      const resText = await api.uploadDataPlans(fd)
-      const message = typeof resText === 'string' ? resText : resText.message
-      setMsg(message || '✅ Upload successful')
-      await mutate() // Refresh data
-      setFile(null)
+      // ✅ Use API helper
+      const res = await api.uploadDataPlans(file, user?.email, {
+        onUploadProgress: (e) => {
+          if (e.total) setProgress(Math.round((e.loaded * 100) / e.total))
+        },
+      })
+
+      if (res?.success || res?.uploadedCount) {
+        setMsg(`✅ Uploaded ${res.uploadedCount || 0} plans successfully!`)
+        await mutate()
+      } else {
+        setMsg(`⚠️ ${res?.message || 'Upload failed'}`)
+      }
     } catch (err) {
-      console.error(err)
-      setMsg(err.message || 'Upload failed')
+      console.error('Upload error:', err)
+      setMsg(err?.response?.data?.message || err.message || '❌ Upload failed')
     } finally {
       setUploading(false)
+      setFile(null)
+      setTimeout(() => setProgress(0), 1500)
     }
   }
 
-  // ✅ Filtering Logic
+  // ---------------- Filtering ----------------
   const filteredPlans = (plans || []).filter((p) => {
     const statusMatch =
-      filterStatus === 'ALL' ||
-      (p.status && p.status.toLowerCase() === filterStatus.toLowerCase())
-
+      filterStatus === 'ALL' || p.status?.toLowerCase() === filterStatus.toLowerCase()
     const serviceMatch =
       filterService === 'ALL' ||
-      (p.dataServices &&
-        p.dataServices.toLowerCase().includes(filterService.toLowerCase()))
-
+      p.dataServices?.toLowerCase().includes(filterService.toLowerCase())
     return statusMatch && serviceMatch
   })
 
-  // ✅ Sorting Logic
+  // ---------------- Sorting ----------------
   const sortedPlans = [...filteredPlans].sort((a, b) => {
-    if (sortBy === 'price') return (a.basePrice || 0) - (b.basePrice || 0)
+    if (sortBy === 'price') return (a.price || 0) - (b.price || 0)
     if (sortBy === 'validity') return (a.validityDays || 0) - (b.validityDays || 0)
     return new Date(b.createdAt) - new Date(a.createdAt)
   })
@@ -72,22 +80,23 @@ export default function ManageDataPlans() {
   return (
     <ProtectedRoute>
       <div className="max-w-7xl mx-auto mt-10 px-4">
+        {/* ---------------- Header ---------------- */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold mb-3 md:mb-0">📡 Manage Data Plans</h2>
-
           <button
             onClick={() => mutate()}
+            disabled={uploading}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${uploading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
 
-        {/* ===================== Upload Section ===================== */}
+        {/* ---------------- Upload Section ---------------- */}
         <div className="bg-white rounded shadow p-4 mb-6">
           <form
-            onSubmit={upload}
+            onSubmit={handleUpload}
             className="flex flex-col md:flex-row items-start md:items-center gap-3"
           >
             <input
@@ -109,10 +118,21 @@ export default function ManageDataPlans() {
             </button>
           </form>
 
+          {/* Progress Bar */}
+          {uploading && (
+            <div className="mt-3 w-full bg-gray-200 rounded h-3 overflow-hidden">
+              <div
+                className="bg-green-600 h-3 rounded transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+
+          {/* Upload Message */}
           {msg && (
             <p
               className={`mt-2 text-sm ${
-                msg.includes('✅') ? 'text-green-600' : 'text-red-600'
+                msg.startsWith('✅') ? 'text-green-600' : 'text-red-600'
               }`}
             >
               {msg}
@@ -120,7 +140,7 @@ export default function ManageDataPlans() {
           )}
         </div>
 
-        {/* ===================== Filters ===================== */}
+        {/* ---------------- Filters ---------------- */}
         <div className="flex flex-wrap items-center gap-4 mb-4">
           <div>
             <label className="mr-2 text-sm font-medium">Filter by Status:</label>
@@ -137,20 +157,20 @@ export default function ManageDataPlans() {
           </div>
 
           <div>
-            <label className="mr-2 text-sm font-medium">Filter by Data Service:</label>
+            <label className="mr-2 text-sm font-medium">Filter by Service:</label>
             <select
               value={filterService}
               onChange={(e) => setFilterService(e.target.value)}
               className="border rounded p-2 text-sm"
             >
               <option value="ALL">All</option>
-              {Array.from(
-                new Set(plans?.map((p) => p.dataServices).filter(Boolean))
-              ).map((service) => (
-                <option key={service} value={service}>
-                  {service}
-                </option>
-              ))}
+              {Array.from(new Set(plans?.map((p) => p.dataServices).filter(Boolean))).map(
+                (service) => (
+                  <option key={service} value={service}>
+                    {service}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
@@ -168,9 +188,11 @@ export default function ManageDataPlans() {
           </div>
         </div>
 
-        {/* ===================== Data Plans Table ===================== */}
+        {/* ---------------- Table ---------------- */}
         <div className="bg-white rounded shadow p-4 overflow-x-auto">
-          {isLoading && <p>Loading data plans...</p>}
+          {isLoading && (
+            <p className="text-gray-600 animate-pulse">Loading data plans...</p>
+          )}
           {error && <p className="text-red-600">Failed to load: {error.message}</p>}
 
           {!isLoading && !error && (
@@ -196,7 +218,7 @@ export default function ManageDataPlans() {
                       <td className="p-2">{p.name || p.planName}</td>
                       <td className="p-2">{p.dataServices || '-'}</td>
                       <td className="p-2">{p.validityDays || '-'}</td>
-                      <td className="p-2">{p.basePrice || p.price }</td>
+                      <td className="p-2">{p.price?.toLocaleString() || '-'}</td>
                       <td className="p-2">{p.ersPlanId || '-'}</td>
                       <td className="p-2">
                         <span
@@ -210,14 +232,10 @@ export default function ManageDataPlans() {
                         </span>
                       </td>
                       <td className="p-2">
-                        {p.createdAt
-                          ? new Date(p.createdAt).toLocaleString()
-                          : '-'}
+                        {p.createdAt ? new Date(p.createdAt).toLocaleString() : '-'}
                       </td>
                       <td className="p-2">
-                        {p.updatedAt
-                          ? new Date(p.updatedAt).toLocaleString()
-                          : '-'}
+                        {p.updatedAt ? new Date(p.updatedAt).toLocaleString() : '-'}
                       </td>
                     </tr>
                   ))

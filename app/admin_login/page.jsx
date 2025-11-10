@@ -24,26 +24,30 @@ export default function AdminLogin() {
 
       console.log('Admin login response:', response)
 
-      const token = response?.token || response?.data?.token
-      const admin =
-        response?.admin || response?.data?.admin || response?.data?.user || response?.user
-
+      // ✅ Extract token and user info
+      const token = response?.token
       if (!token) {
         toast.error('❌ Invalid username or password', { id: toastId })
+        setSubmitting(false)
         return
       }
 
-      const adminIdentifier = admin?.username || admin?.email || username
+      const admin = {
+        id: response.identifier,
+        username: response.username,
+        role: response.role || 'ADMIN'
+      }
 
       // ✅ Save token and login info
-      saveAuth(token, { identifier: adminIdentifier, role: 'ADMIN' })
-      login(token, { identifier: adminIdentifier, role: 'ADMIN' })
+      saveAuth(token, admin)
+      login(token, admin)
 
-      toast.success(`🎉 Welcome back, ${adminIdentifier}!`, {
+      toast.success(`🎉 Welcome back, ${admin.username}!`, {
         id: toastId,
-        duration: 2000,
+        duration: 2000
       })
 
+      // ✅ Redirect to dashboard after 2s
       setTimeout(() => router.push('/admin_dashboard'), 2000)
     } catch (err) {
       console.error('Admin login error:', err)

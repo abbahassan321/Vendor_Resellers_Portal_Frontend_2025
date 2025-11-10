@@ -13,10 +13,11 @@ export default function WalletDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const fetchingRef = useRef(false)
+  const user = getUser()
   const userRole = getRole()
 
   /* ============================================================
-   * Fetch Wallet Data
+   * Fetch Wallet Data (Balance + Transactions)
    * ============================================================ */
   const fetchWalletData = async () => {
     if (fetchingRef.current) return
@@ -25,23 +26,22 @@ export default function WalletDashboard() {
     setError(null)
 
     try {
-      const user = getUser()
-
       if (!user?.email || !userRole) {
         toast.error('⚠️ Session expired. Please log in again.')
         router.push('/login')
         return
       }
 
-      const [balanceData, txns] = await Promise.all([
+      // ✅ Use query params for backend
+      const [balanceData, userTxns] = await Promise.all([
         api.getWalletBalance(user.email, userRole),
-        api.listWalletTransactions(user.email),
+        api.listWalletTransactions(user.email, userRole), // updated
       ])
 
       setWalletBalance(balanceData?.balance ?? 0)
-      setTransactions(Array.isArray(txns) ? txns : [])
+      setTransactions(Array.isArray(userTxns) ? userTxns : [])
     } catch (err) {
-      console.error('❌ Wallet fetch error:', err)
+      console.error('❌ Wallet fetch error:', err.response || err)
       setError('Failed to load wallet data.')
       toast.error('❌ Failed to fetch wallet data.')
     } finally {
@@ -50,17 +50,57 @@ export default function WalletDashboard() {
     }
   }
 
+  /* ============================================================
+   * Lifecycle: Fetch on mount + auto-refresh every 15s
+   * ============================================================ */
   useEffect(() => {
     fetchWalletData()
     const interval = setInterval(fetchWalletData, 15000)
     return () => clearInterval(interval)
   }, [])
 
+  /* ============================================================
+   * Skeleton Row for Loading
+   * ============================================================ */
+  const SkeletonRow = () => (
+    <tr className="animate-pulse border-b">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <td key={i} className="px-3 py-2">
+          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+        </td>
+      ))}
+    </tr>
+  )
+
+  /* ============================================================
+   * Render Loading or Error State
+   * ============================================================ */
   if (loading)
     return (
       <ProtectedRoute>
-        <div className="p-6 text-center text-gray-500 animate-pulse">
-          Loading wallet...
+        <div className="p-6 max-w-5xl mx-auto">
+          <div className="mb-6 flex justify-between items-center">
+            <div className="h-6 w-40 bg-gray-200 rounded animate-pulse"></div>
+            <div className="h-8 w-24 bg-gray-200 rounded animate-pulse"></div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <table className="w-full text-left table-auto border-collapse">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 border-b">Date</th>
+                  <th className="px-3 py-2 border-b">Type</th>
+                  <th className="px-3 py-2 border-b">Amount (₦)</th>
+                  <th className="px-3 py-2 border-b">Reference</th>
+                  <th className="px-3 py-2 border-b">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <SkeletonRow key={i} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </ProtectedRoute>
     )
@@ -73,7 +113,7 @@ export default function WalletDashboard() {
     )
 
   /* ============================================================
-   * UI
+   * Render Main Wallet Dashboard
    * ============================================================ */
   return (
     <ProtectedRoute>
@@ -83,38 +123,25 @@ export default function WalletDashboard() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold">💰 My Wallet</h2>
-          <div className="hidden md:flex items-center gap-4">
-            <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg shadow font-medium">
-              Balance: ₦{walletBalance.toLocaleString()}
-            </div>
-            <button
-              onClick={() => router.push('/payment-form')}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow font-medium transition"
-            >
-              Fund Wallet
-            </button>
+          <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg shadow font-medium">
+            Balance: ₦{walletBalance.toLocaleString()}
           </div>
-        </div>
-
-        {/* Mobile fixed button */}
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center md:hidden">
-          <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full shadow mb-2 text-sm font-medium">
-            ₦{walletBalance.toLocaleString()}
-          </div>
-          <button
-            onClick={() => router.push('/payment-form')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-lg font-medium transition"
-          >
-            Fund Wallet
-          </button>
         </div>
 
         {/* Transactions Table */}
         <div className="bg-white shadow rounded-lg p-6 mt-6">
-          <h3 className="text-lg font-medium mb-4">Transaction History</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium">Transaction History</h3>
+            <button
+              onClick={fetchWalletData}
+              className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-md transition"
+            >
+              Refresh
+            </button>
+          </div>
 
           {transactions.length === 0 ? (
-            <p className="text-gray-500 text-sm text-center">
+            <p className="text-gray-500 text-sm text-center py-6">
               No transactions yet.
             </p>
           ) : (
@@ -133,19 +160,17 @@ export default function WalletDashboard() {
                   {transactions.map((txn) => (
                     <tr key={txn.id} className="hover:bg-gray-50 border-b">
                       <td className="px-3 py-2 text-sm whitespace-nowrap">
-                        {new Date(txn.createdAt).toLocaleString()}
+                        {txn.createdAt ? new Date(txn.createdAt).toLocaleString() : '-'}
                       </td>
                       <td className="px-3 py-2 text-sm capitalize whitespace-nowrap">
-                        {txn.txnType}
+                        {txn.txnType?.toLowerCase() === 'funding' ? 'Funding' : 'Debit'}
                       </td>
                       <td
                         className={`px-3 py-2 text-sm font-medium whitespace-nowrap ${
-                          txn.txnType === 'FUNDING'
-                            ? 'text-green-600'
-                            : 'text-red-600'
+                          txn.txnType?.toLowerCase() === 'funding' ? 'text-green-600' : 'text-red-600'
                         }`}
                       >
-                        {txn.amount?.toLocaleString()}
+                        {Number(txn.amount).toLocaleString()}
                       </td>
                       <td className="px-3 py-2 text-sm font-mono whitespace-nowrap">
                         {txn.reference || '—'}

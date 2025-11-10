@@ -10,7 +10,7 @@ export default function ManageSubvendor() {
   const { data: subs, error, isLoading, mutate } = useSWR('subs', api.listSubvendors);
 
   const [showModal, setShowModal] = useState(false);
-  const [editingSub, setEditingSub] = useState(null); // null for create, object for edit
+  const [editingSub, setEditingSub] = useState(null);
   const [form, setForm] = useState({
     businessName: '',
     contactPerson: '',
@@ -52,27 +52,37 @@ export default function ManageSubvendor() {
     setShowModal(true);
   };
 
+  const validateForm = () => {
+    if (!form.businessName.trim()) return 'Business name is required';
+    if (!form.contactPerson.trim()) return 'Contact person is required';
+    if (!form.email.trim()) return 'Email is required';
+    if (!/^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$/.test(form.email)) return 'Invalid email format';
+    if (!form.phone.trim()) return 'Phone number is required';
+    if (!/^[0-9]{7,15}$/.test(form.phone)) return 'Invalid phone number';
+    if (!editingSub && !form.password.trim()) return 'Password is required';
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitting(true);
+    const errorMsg = validateForm();
+    if (errorMsg) return toast.error(errorMsg);
 
+    setSubmitting(true);
     const toastId = toast.loading(editingSub ? 'Updating subvendor...' : 'Creating subvendor...');
 
     try {
       if (editingSub) {
-        // Update
         await api.updateSubvendor(editingSub.id, {
           businessName: form.businessName,
           contactPerson: form.contactPerson,
           email: form.email,
           address: form.address,
           phone: form.phone,
-          ...(form.password ? { passwordHash: form.password } : {}), // update only if provided
+          ...(form.password ? { passwordHash: form.password } : {}),
         });
-
         toast.success('✅ Subvendor updated successfully!', { id: toastId });
       } else {
-        // Create
         await api.createSubvendor({
           businessName: form.businessName,
           contactPerson: form.contactPerson,
@@ -81,7 +91,6 @@ export default function ManageSubvendor() {
           phone: form.phone,
           passwordHash: form.password,
         });
-
         toast.success('✅ Subvendor created successfully!', { id: toastId });
       }
 
@@ -89,13 +98,12 @@ export default function ManageSubvendor() {
       mutate();
     } catch (err) {
       console.error('Subvendor save error:', err);
-
       const message =
+        err.response?.data?.error ||
         err.response?.data?.message ||
         (typeof err.response?.data === 'string'
           ? err.response.data
           : '❌ Failed to save subvendor. Please try again.');
-
       toast.error(message, { id: toastId });
     } finally {
       setSubmitting(false);
@@ -114,13 +122,26 @@ export default function ManageSubvendor() {
     } catch (err) {
       console.error('Failed to delete subvendor:', err);
       const msg =
+        err.response?.data?.error ||
         err.response?.data?.message ||
-        (typeof err.response?.data === 'string'
-          ? err.response.data
-          : '❌ Failed to delete subvendor.');
+        '❌ Failed to delete subvendor.';
       toast.error(msg, { id: toastId });
     }
   };
+
+  const SkeletonLoader = () => (
+    <div className="space-y-3">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="animate-pulse flex space-x-4 border-b py-2">
+          <div className="flex-1 h-4 bg-gray-200 rounded"></div>
+          <div className="flex-1 h-4 bg-gray-200 rounded"></div>
+          <div className="flex-1 h-4 bg-gray-200 rounded"></div>
+          <div className="flex-1 h-4 bg-gray-200 rounded"></div>
+          <div className="w-16 h-4 bg-gray-200 rounded"></div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <ProtectedRoute>
@@ -139,10 +160,10 @@ export default function ManageSubvendor() {
         </div>
 
         {/* Loading & Error States */}
-        {isLoading && <p className="text-gray-500 text-sm">Loading subvendors...</p>}
+        {isLoading && <SkeletonLoader />}
         {error && (
           <p className="text-red-500 text-sm">
-            Failed to load subvendors. Please try again later.
+            ❌ Failed to load subvendors. Please try again later.
           </p>
         )}
 
@@ -219,7 +240,6 @@ export default function ManageSubvendor() {
                   onChange={handleChange}
                   placeholder="Business Name"
                   className="w-full border p-2 rounded"
-                  required
                 />
                 <input
                   name="contactPerson"
@@ -227,7 +247,6 @@ export default function ManageSubvendor() {
                   onChange={handleChange}
                   placeholder="Contact Person"
                   className="w-full border p-2 rounded"
-                  required
                 />
                 <input
                   name="email"
@@ -236,7 +255,6 @@ export default function ManageSubvendor() {
                   onChange={handleChange}
                   placeholder="Email"
                   className="w-full border p-2 rounded"
-                  required
                 />
                 <input
                   name="phone"
@@ -261,7 +279,6 @@ export default function ManageSubvendor() {
                     editingSub ? 'New Password (optional)' : 'Password (required)'
                   }
                   className="w-full border p-2 rounded"
-                  required={!editingSub}
                 />
 
                 <button
